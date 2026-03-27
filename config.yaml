@@ -1,0 +1,30 @@
+# Base configuration for Lokr — Graph-RAG Code Intelligence Engine
+
+ignore_dirs:
+  - ".git"
+  - "node_modules"
+  - "venv"
+  - ".venv"
+  - "env"
+  - "__pycache__"
+  - "dist"
+  - "build"
+  - ".idea"
+  - ".vscode"
+  - "data/vector_store" # Phase 4 addition to enforce scanner ignorance of sqlite binary db
+
+ignore_extensions:
+  - ".pyc"
+  - ".exe"
+  - ".dll"
+  - ".png"
+  - ".jpg"
+  - ".jpeg"
+  - ".gif"
+  - ".mp4"
+  - ".mp3"
+  - ".pdf"
+  - ".zip"
+  - ".tar.gz"
+  - ".tar"
+  - ".sqlite3"

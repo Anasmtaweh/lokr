@@ -1,0 +1,65 @@
+# ── Python ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+wheels/
+*.whl
+.eggs/
+
+# ── Virtual Environments ─────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── AI / Vector Store (CRITICAL — never commit these) ───
+data/vector_store/
+*.pkl
+*.bin
+*.chroma
+chroma.sqlite3
+*.parquet
+
+# ── Ollama / LLM Model Weights ───────────────────────────
+*.gguf
+*.ggml
+*.safetensors
+
+# ── Streamlit ───────────────────────────────────────────
+.streamlit/secrets.toml
+
+# ── OS & Editor Junk ────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.code-workspace
+
+# ── Secrets & Env ────────────────────────────────────────
+.env
+.env.*
+*.key
+*.pem
+secrets.yaml
+secrets.json
+
+# ── Logs & Temp ─────────────────────────────────────────
+*.log
+*.tmp
+*.csv
+*.cache
+
+# ── Data / Output ────────────────────────────────────────
+outputs/
+*.json.bak
+
+# ── Git ──────────────────────────────────────────────────
+*.orig

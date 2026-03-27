@@ -1,0 +1,68 @@
+2026-03-08 21:39:26,650 [PID 53268] INFO No binary specified, looking for `pyre.bin` in PATH
+2026-03-08 21:39:26,651 [PID 53268] INFO Pyre binary is located at `/home/anas/dev-oracle/.venv/bin/pyre.bin`
+2026-03-08 21:39:26,651 [PID 53268] INFO Could not determine the number of Pyre workers from configuration. Auto-set the value to 5.
+2026-03-08 21:39:26,651 [PID 53268] INFO No typeshed specified, looking for it...
+2026-03-08 21:39:26,651 [PID 53268] INFO Found: `/home/anas/dev-oracle/.venv/lib/pyre_check/typeshed`
+2026-03-08 21:39:26,652 [PID 53268] INFO Writing arguments into /tmp/pyre_arguments_obxxggxw.json...
+2026-03-08 21:39:26,652 [PID 53268] DEBUG Arguments:
+{
+  "source_paths": {
+    "kind": "simple",
+    "paths": [
+      "/home/anas/dev-oracle"
+    ]
+  },
+  "search_paths": [
+    "/home/anas/dev-oracle/.venv/lib/python3.12/site-packages",
+    "/home/anas/dev-oracle/.venv/lib/pyre_check/typeshed/stdlib",
+    "/home/anas/dev-oracle/.venv/lib/pyre_check/typeshed/stubs/ExifRead",
+    "/home/anas/dev-oracle/.venv/lib/pyre_check/typeshed/stubs/PyMySQL",
+    "/home/anas/dev-oracle/.venv/lib/pyre_check/typeshed/stubs/PyYAML",
+    "/home/anas/dev-oracle/.venv/lib/pyre_check/typeshed/stubs/aiofiles",
+    "/home/anas/dev-oracle/.venv/lib/pyre_check/typeshed/stubs/chevron",
+    "/home/anas/dev-oracle/.venv/lib/pyre_check/typeshed/stubs/colorama",
+    "/home/anas/dev-oracle/.venv/lib/pyre_check/typeshed/stubs/ldap3",
+    "/home/anas/dev-oracle/.venv/lib/pyre_check/typeshed/stubs/mysqlclient",
+    "/home/anas/dev-oracle/.venv/lib/pyre_check/typeshed/stubs/paramiko",
+    "/home/anas/dev-oracle/.venv/lib/pyre_check/typeshed/stubs/psycopg2",
+    "/home/anas/dev-oracle/.venv/lib/pyre_check/typeshed/stubs/pycurl",
+    "/home/anas/dev-oracle/.venv/lib/pyre_check/typeshed/stubs/python-dateutil",
+    "/home/anas/dev-oracle/.venv/lib/pyre_check/typeshed/stubs/pytz",
+    "/home/anas/dev-oracle/.venv/lib/pyre_check/typeshed/stubs/regex",
+    "/home/anas/dev-oracle/.venv/lib/pyre_check/typeshed/stubs/requests",
+    "/home/anas/dev-oracle/.venv/lib/pyre_check/typeshed/stubs/retry",
+    "/home/anas/dev-oracle/.venv/lib/pyre_check/typeshed/stubs/tqdm",
+    "/home/anas/dev-oracle/.venv/lib/pyre_check/typeshed/stubs/ujson"
+  ],
+  "excludes": [],
+  "checked_directory_allowlist": [
+    "/home/anas/dev-oracle"
+  ],
+  "checked_directory_blocklist": [],
+  "extensions": [],
+  "log_path": "/home/anas/dev-oracle/.pyre",
+  "global_root": "/home/anas/dev-oracle",
+  "debug": false,
+  "python_version": {
+    "major": 3,
+    "minor": 12,
+    "micro": 3
+  },
+  "system_platform": "linux",
+  "shared_memory": {},
+  "parallel": true,
+  "number_of_workers": 5,
+  "additional_logging_sections": [],
+  "show_error_traces": false,
+  "strict": false
+}
+2026-03-08 21:39:26,673 [PID 53268] PERFORMANCE  Initialized shared memory (heap size: 8589934592, dep table pow: 1, hash table pow: 26): 0.001s
+2026-03-08 21:39:26,673 [PID 53268] PERFORMANCE  Initialized multiprocessing workers (workers: 5): 0.001s
+2026-03-08 21:39:26,673 [PID 53268] INFO  Building module tracker...
+2026-03-08 21:39:26,744 [PID 53268] PERFORMANCE  Module tracker built: 0.070s
+2026-03-08 21:39:26,744 [PID 53268] PERFORMANCE  Full environment built: 0.070s
+2026-03-08 21:39:26,744 [PID 53268] INFO  Collecting all definitions...
+2026-03-08 21:39:28,388 [PID 53268] WARNING  Parser error in module `pip._vendor.pyparsing.unicode`: CPython runtime raised a non-syntax exception
+2026-03-08 21:39:30,913 [PID 53268] PERFORMANCE  Collected definitions (defines: 48838): 4.165s
+2026-03-08 21:39:30,913 [PID 53268] INFO  Checking 48838 functions...
+2026-03-08 21:39:33,646 [PID 53268] ERROR 

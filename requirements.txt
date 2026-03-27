@@ -1,0 +1,14 @@
+pyyaml
+pathspec
+tree-sitter>=0.22.0
+tree-sitter-python>=0.21.0
+networkx>=3.0
+chromadb>=0.4.0
+mcp
+streamlit
+litellm
+tree-sitter-javascript
+tree-sitter-typescript
+tree-sitter-html
+tree-sitter-css
+tree-sitter-php
