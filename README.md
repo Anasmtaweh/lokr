@@ -148,3 +148,12 @@ python main.py --mcp
 ## License
 
 MIT — see [LICENSE](./LICENSE) for details.
+
+---
+
+## Author
+
+Built by [Anas Mtaweh](https://github.com/Anasmtaweh) 
+
+- GitHub: [Anasmtaweh](https://github.com/Anasmtaweh)
+- LinkedIn: [linkedin.com/in/anasmtaweh](https://www.linkedin.com/in/anasmtaweh)
