@@ -7,7 +7,23 @@ class CodeScanner:
     """
     A scanner for discovering valid source code files within a target directory.
     Uses pathspec to respect both .gitignore rules and custom config ignores.
+    Filters to an explicit allowlist of supported source code extensions.
     """
+
+    # Explicit allowlist of file extensions the parser can handle.
+    # If a file extension is not in this set, it will be skipped.
+    SUPPORTED_EXTENSIONS = {
+        # Python
+        ".py",
+        # JavaScript & JSX
+        ".js", ".jsx", ".mjs", ".cjs",
+        # TypeScript & TSX
+        ".ts", ".tsx",
+        # Web
+        ".html", ".htm", ".css",
+        # PHP
+        ".php", ".php5", ".phtml",
+    }
 
     def __init__(self, target_dir: str | Path, config_path: str | Path = "config.yaml") -> None:
         """
@@ -98,6 +114,10 @@ class CodeScanner:
 
             # Skip if matched by our pathspec
             if self.ignore_spec.match_file(rel_path):
+                continue
+
+            # Only include files with explicitly supported extensions
+            if path.suffix.lower() not in self.SUPPORTED_EXTENSIONS:
                 continue
 
             # Verify it's a decodable text file, thus avoiding hidden binary distributions

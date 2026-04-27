@@ -1,4 +1,6 @@
 import chromadb
+import shutil
+import os
 from pathlib import Path
 from typing import Dict, Any, List
 
@@ -7,78 +9,101 @@ class CodebaseVectorDB:
     Semantic search engine utilizing ChromaDB.
     Indexes parsed generic AST elements (Classes, Functions, Docstrings) 
     into a persistent local vector store for neural retrieval.
+    Includes a Self-Healing mechanism for metadata corruption recovery.
     """
 
     def __init__(self, db_dir: str | Path = "data/vector_store") -> None:
         """
         Initializes the ChromaDB persistent client pointing to the local directory,
         and ensures the required AST collection exists.
-
-        Args:
-            db_dir (str | Path): Relative or absolute path to the local vector storage root.
+        
+        Self-healing: If the collection or client initialization fails due to 
+        metadata corruption (e.g. missing UUID folders), it wipes the store and restarts.
         """
         self.db_path = Path(db_dir).resolve()
         
-        # Initialize Persistent Client (which automatically handles local sqlite+parquet embedding)
+        try:
+            self._bootstrap_client()
+        except Exception as e:
+            # If initialization fails (e.g. Collection not found or index mismatch)
+            # we perform a HARD RESET of the physical storage.
+            print(f"[!] Intelligence Store Corruption Detected: {e}")
+            self._hard_reset_storage()
+            self._bootstrap_client()
+
+    def _bootstrap_client(self) -> None:
+        """Helper to initialize client and collection."""
         self.client = chromadb.PersistentClient(path=str(self.db_path))
-        
-        # Get or create the core collection
+        # This is where the 'Collection does not exist' usually triggers if metadata is stale
         self.collection = self.client.get_or_create_collection(name="codebase_ast")
 
-    def index_file(self, parsed_data: Dict[str, Any]) -> None:
-        """
-        Formulates a semantic text document from a parsed AST JSON dictionary,
-        and upserts it into the local Chroma collection seamlessly.
+    def _hard_reset_storage(self) -> None:
+        """Force-wipes the vector store directory to clear corrupted metadata."""
+        print("[*] Performing Hard Reset on Vector Store...")
+        if self.db_path.exists():
+            # Delete all subdirectories (UUID folders) and files (sqlite)
+            for item in self.db_path.iterdir():
+                if item.name == ".gitkeep":
+                    continue
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+        else:
+            self.db_path.mkdir(parents=True, exist_ok=True)
 
+    def reset_collection(self) -> None:
+        """
+        Drops and recreates the collection, clearing all stale data.
+        Essential when re-indexing a different project.
+        """
+        try:
+            self.client.delete_collection(name="codebase_ast")
+        except Exception:
+            # Handle cases where collection doesn't exist yet
+            pass
+        self.collection = self.client.get_or_create_collection(name="codebase_ast")
+
+    def upsert_nodes(self, documents: List[str], metadatas: List[Dict[str, Any]], ids: List[str]) -> None:
+        """
+        Upserts multiple nodes into the Chroma collection.
+        
         Args:
-            parsed_data (Dict[str, Any]): The structured output direct from CodeParser.
+            documents (List[str]): Text representations of the nodes.
+            metadatas (List[Dict[str, Any]]): Metadata for each node.
+            ids (List[str]): Unique IDs for each node.
         """
-        file_path_str: str = parsed_data.get("file_path", "unknown")
-        
-        # Formulate Document String
-        doc_lines: List[str] = [f"File: {file_path_str}"]
-        
-        classes: List[Dict[str, Any]] = parsed_data.get("classes", [])
-        if classes:
-            class_names: List[str] = [c.get("name", "") for c in classes]
-            doc_lines.append(f"Classes: {', '.join(class_names)}")
+        if not ids:
+            return
             
-        functions: List[Dict[str, Any]] = parsed_data.get("functions", [])
-        if functions:
-            doc_lines.append("Functions:")
-            for func in functions:
-                func_name: str = func.get("name", "unknown")
-                func_params: List[str] = func.get("parameters", [])
-                params_str: str = ", ".join(func_params)
-                docstring: str = func.get("docstring") or "No docstring provided."
-                
-                doc_lines.append(f"  - def {func_name}({params_str}):")
-                doc_lines.append(f"      \"\"\"{docstring}\"\"\"")
-
-        # Compile rich text body
-        document_text: str = "\n".join(doc_lines)
-
-        # Upsert into Chroma (Chroma implicitly embeds this text using its local all-MiniLM-L6-v2 model)
-        # We map document ID purely against absolute file_path guaranteeing no collisions naturally.
         self.collection.upsert(
-            documents=[document_text],
-            metadatas=[{"file_path": file_path_str}],
-            ids=[file_path_str]
+            documents=documents,
+            metadatas=metadatas,
+            ids=ids
         )
+
+    def delete_nodes(self, ids: List[str]) -> None:
+        """
+        Removes nodes from the collection by their IDs.
+        
+        Args:
+            ids (List[str]): List of node IDs to remove.
+        """
+        if not ids:
+            return
+            
+        try:
+            self.collection.delete(ids=ids)
+        except Exception as e:
+            # Chromadb might raise an error if IDs don't exist
+            pass
 
     def delete_file(self, filepath: Path) -> None:
         """
-        Removes a document from the ChromaDB collection by its file path ID.
-        Called when a file is deleted from the repository during incremental sync.
-
-        Args:
-            filepath (Path): The absolute path of the file to remove from the index.
+        @deprecated Use delete_nodes instead. This remains for back-compat during transition.
         """
         doc_id = str(filepath.resolve())
-        try:
-            self.collection.delete(ids=[doc_id])
-        except Exception as e:
-            print(f"[WATCHMAN] Warning: Could not delete {doc_id} from index: {e}")
+        self.delete_nodes([doc_id])
 
     def search(self, query: str, n_results: int = 3) -> List[Dict[str, Any]]:
         """
@@ -108,8 +133,9 @@ class CodebaseVectorDB:
             metadatas = results["metadatas"][0]
             distances = results["distances"][0] if results.get("distances") else [0.0] * len(docs)
             
-            for doc, meta, dist in zip(docs, metadatas, distances): # type: ignore
+            for doc, meta, dist, node_id in zip(docs, metadatas, distances, results.get("ids", [[]])[0]): # type: ignore
                 processed_results.append({
+                    "node_id": node_id,
                     "file_path": meta.get("file_path", "unknown") if meta else "unknown",
                     "distance": dist,
                     "document": doc

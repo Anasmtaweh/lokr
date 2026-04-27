@@ -156,4 +156,4 @@ MIT — see [LICENSE](./LICENSE) for details.
 Built by [Anas Mtaweh](https://github.com/Anasmtaweh) 
 
 - GitHub: [Anasmtaweh](https://github.com/Anasmtaweh)
-- LinkedIn: [linkedin.com/in/anasmtaweh](https://www.linkedin.com/in/anasmtaweh)
+- LinkedIn: [linkedin.com/in/anas-mtaweh-a02806218](https://www.linkedin.com/in/anas-mtaweh-a02806218)

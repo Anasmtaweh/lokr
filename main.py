@@ -6,8 +6,8 @@ from pathlib import Path
 from core.scanner import CodeScanner
 from core.parser import CodeParser
 from core.graph import DependencyGraph
+from core.indexer import Indexer
 from data.vector_db import CodebaseVectorDB
-from data.git_tools import GitWatchman
 from engine.oracle import ContextOracle
 from engine.mcp_server import run_mcp_server
 
@@ -73,7 +73,20 @@ def main() -> None:
             project_files = list(scanner.get_files())
             code_parser = CodeParser()
             dep_graph = DependencyGraph()
-            dep_graph.build_graph(file_paths=project_files, parser=code_parser)
+            
+            # Graph Persistence Logic
+            storage_dir = Path(".lokr")
+            graph_path = storage_dir / "graph.json"
+            
+            if graph_path.exists():
+                dep_graph.load_graph(graph_path)
+                # Sync with git to handle modifications/additions/deletions incrementally
+                if dep_graph.sync_with_git(project_root, code_parser, project_files):
+                    dep_graph.save_graph(graph_path)
+            else:
+                dep_graph.build_graph(file_paths=project_files, parser=code_parser, project_root=project_root)
+                storage_dir.mkdir(exist_ok=True)
+                dep_graph.save_graph(graph_path)
             dependents = dep_graph.get_dependents(target_file)
             print(f"\n[{target_file.name}] is imported by:")
             if not dependents:
@@ -90,21 +103,31 @@ def main() -> None:
 
     # Phase 4: Index
     elif args.index:
-        print("[*] Commencing Phase 4: Codebase Aggregation & Indexing...")
+        print("[*] Commencing Phase 4: Function-Level Node Indexing...")
         try:
             scanner = CodeScanner(target_dir=project_root, config_path=args.config)
             parser_engine = CodeParser()
             vector_db = CodebaseVectorDB()
+            dep_graph = DependencyGraph()
             project_files = list(scanner.get_files())
-            successful_indexes = 0
-            for fp in project_files:
-                try:
-                    parsed_json = parser_engine.parse_file(fp)
-                    vector_db.index_file(parsed_json)
-                    successful_indexes += 1
-                except Exception as chunk_err:
-                    print(f" [WARN] Failed to embed {fp}: {chunk_err}", file=sys.stderr)
-            print(f"[SUCCESS] Indexed {successful_indexes} files into persistent memory.")
+            
+            # Step 1: Build the complete Graph to discover all function nodes
+            print("[1/2] Building hierarchical dependency graph...")
+            dep_graph.build_graph(file_paths=project_files, parser=parser_engine, project_root=project_root)
+            
+            # Step 2: Extract and index individual functions
+            print("[2/2] Embedding function nodes into vector database...")
+            indexer = Indexer(vector_db)
+            vector_db.reset_collection()
+            indexer.index_nodes(dep_graph)
+            
+            # Save the graph state
+            storage_dir = Path(".lokr")
+            graph_path = storage_dir / "graph.json"
+            storage_dir.mkdir(exist_ok=True)
+            dep_graph.save_graph(graph_path)
+            
+            print(f"[SUCCESS] Codebase indexed at function-level granularity.")
         except Exception as e:
             print(f"[ERROR] {e}", file=sys.stderr)
             sys.exit(1)
@@ -120,7 +143,8 @@ def main() -> None:
                     rel_path = Path(res['file_path']).relative_to(project_root)
                 except ValueError:
                     rel_path = res['file_path']
-                print(f"\n[{idx}] File: {rel_path} | Distance Score: {res['distance']:.4f}")
+                node_name = res.get('node_id', '').split('::')[-1]
+                print(f"\n[{idx}] File: {rel_path} | Function: {node_name} | Distance Score: {res['distance']:.4f}")
             print("\n---------------------------------------------------------")
         except Exception as e:
             print(f"[ERROR] {e}", file=sys.stderr)
@@ -128,27 +152,39 @@ def main() -> None:
 
     # Phase 5: Incremental Update
     elif args.update:
+        print("[*] Commencing Phase 5: Incremental Git-Sync...")
         try:
-            watchman = GitWatchman()
-            modified_files, deleted_files = watchman.get_changed_files(project_root)
+            storage_dir = Path(".lokr")
+            graph_path = storage_dir / "graph.json"
+            
+            if not graph_path.exists():
+                print("[ERROR] No existing graph cache found. Please run --index first.")
+                sys.exit(1)
+                
             scanner = CodeScanner(target_dir=project_root, config_path=args.config)
-            valid_project_files = set(scanner.get_files())
-            filtered_modified = [fp for fp in modified_files if fp in valid_project_files]
+            project_files = list(scanner.get_files())
+            code_parser = CodeParser()
             vector_db = CodebaseVectorDB()
-            parser_engine = CodeParser()
-            deleted_count = 0
-            for fp in deleted_files:
-                vector_db.delete_file(fp)
-                deleted_count += 1
-            updated_count = 0
-            for fp in filtered_modified:
-                try:
-                    parsed_json = parser_engine.parse_file(fp)
-                    vector_db.index_file(parsed_json)
-                    updated_count += 1
-                except Exception as e:
-                    print(f" [WARN] Could not re-index {fp}: {e}", file=sys.stderr)
-            print(f"[WATCHMAN] Fast-sync complete: {updated_count} updated, {deleted_count} deleted.")
+            dep_graph = DependencyGraph()
+            indexer = Indexer(vector_db)
+            
+            dep_graph.load_graph(graph_path)
+            
+            # Synchronize with Git and collect function delta
+            delta = dep_graph.sync_with_git(project_root, code_parser, project_files)
+            
+            # Update Vector Database incrementally
+            if delta["deleted_nodes"]:
+                print(f" [SYNC] Deleting {len(delta['deleted_nodes'])} function vectors...")
+                indexer.delete_nodes(delta["deleted_nodes"])
+            
+            if delta["added_nodes"]:
+                print(f" [SYNC] Indexing {len(delta['added_nodes'])} new function vectors...")
+                indexer.index_node_list(delta["added_nodes"], dep_graph)
+            
+            # Save the updated graph state
+            dep_graph.save_graph(graph_path)
+            print(f"[SUCCESS] Fast-sync complete: {len(delta['added_nodes'])} updated, {len(delta['deleted_nodes'])} deleted.")
         except Exception as e:
             print(f"[ERROR] {e}", file=sys.stderr)
             sys.exit(1)
@@ -161,9 +197,22 @@ def main() -> None:
             code_parser = CodeParser()
             vector_db = CodebaseVectorDB()
             dep_graph = DependencyGraph()
-            dep_graph.build_graph(file_paths=project_files, parser=code_parser)
-            oracle = ContextOracle(parser=code_parser, graph=dep_graph, db=vector_db)
-            context_markdown = oracle.generate_context(query=args.ask)
+            
+            # Graph Persistence Logic
+            storage_dir = Path(".lokr")
+            graph_path = storage_dir / "graph.json"
+            
+            if graph_path.exists():
+                dep_graph.load_graph(graph_path)
+                # Sync with git to handle modifications/additions/deletions incrementally
+                if dep_graph.sync_with_git(project_root, code_parser, project_files):
+                    dep_graph.save_graph(graph_path)
+            else:
+                dep_graph.build_graph(file_paths=project_files, parser=code_parser, project_root=project_root)
+                storage_dir.mkdir(exist_ok=True)
+                dep_graph.save_graph(graph_path)
+            oracle = ContextOracle(parser=code_parser, graph=dep_graph, db=vector_db, graph_path=graph_path, project_root=project_root)
+            context_markdown, _, _ = oracle.generate_context(query=args.ask)
             print(context_markdown)
         except Exception as e:
             print(f"[ERROR] {e}", file=sys.stderr)
@@ -174,3 +223,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+# Test comment

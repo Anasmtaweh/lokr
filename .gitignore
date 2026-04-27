@@ -63,3 +63,7 @@ outputs/
 
 # ── Git ──────────────────────────────────────────────────
 *.orig
+# ── LOKR Engine ────────────────────────────────────────
+.lokr/
+ask_output.txt
+ask_path_output.txt
