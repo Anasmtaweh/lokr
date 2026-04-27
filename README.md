@@ -35,6 +35,17 @@ Lokr is a **100% local**, GPU-accelerated code intelligence engine. It indexes y
 
 ---
 
+## Reliability & Grounding
+
+Lokr includes multiple **programmatic clamps** to prevent the LLM from inventing non‑existent features:
+
+- **Forced Categorical Flags** – Every answer starts with `[FEATURE PRESENT]` or `[FEATURE MISSING]`, forcing the model to decide what actually exists.
+- **Automatic Stop Sequences** – The API stops generating immediately after “This is not implemented in the current codebase.” — no tutorials, no invented middleware, no hallucinated code.
+- **File Facts Injection** – When a file is injected into context, a bullet list of verified class/function names is prepended so the model can't invent alternative names (e.g., `sent_emails` instead of `SentReminder`).
+- **System Log Awareness** – Missing or blocked files generate explicit `SYSTEM LOG` entries (`FILE NOT FOUND`, `ACCESS DENIED`) so the LLM never guesses about file contents.
+
+---
+
 ## Quick Start
 
 ### Prerequisites
@@ -83,6 +94,10 @@ lokr/
 ├── core/
 │   ├── scanner.py          # File discovery with .gitignore-aware filtering
 │   ├── parser.py           # Polyglot AST extractor (Python, JS, TS, PHP, HTML, CSS)
+│   ├── indexer.py          # Node embedding pipeline for the vector store
+│   ├── retriever.py        # Semantic search + graph-guided context expansion
+│   ├── visualizer.py       # 2D & 3D subgraph rendering (Matplotlib + 3D-force-graph)
+│   ├── reasoning.py        # Persistent global reasoning memory
 │   └── graph.py            # NetworkX dependency graph builder
 │
 ├── data/
@@ -91,7 +106,7 @@ lokr/
 │
 └── engine/
     ├── oracle.py           # ContextOracle — fuses RAG + graph into Markdown context
-    └── mcp_server.py       # MCP stdio server for AI agent tool integration
+    └── mcp_server.py       # MCP stdio server for AI agent integration
 ```
 
 ---
@@ -125,6 +140,9 @@ python main.py --index
 
 # Semantic search
 python main.py --search "how does authentication work"
+
+# Incremental git-sync (re-index only changed files)
+python main.py --update
 
 # Ask the Oracle (outputs Markdown context)
 python main.py --ask "what does the login function do"
