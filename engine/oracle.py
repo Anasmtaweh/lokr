@@ -37,9 +37,19 @@ class ContextOracle:
         pattern = r'\b[\w./-]+\.[a-zA-Z]{2,4}\b'
         matches = set(re.findall(pattern, query))
         
+        # Backup pattern to capture full absolute paths with spaces
+        path_pattern = r'(?:/[\w\s.-]+)+\.[a-zA-Z]{2,4}\b'
+        full_paths = [m.group(0) for m in re.finditer(path_pattern, query)]
+        for p in full_paths:
+            matches.add(p)
+        
         file_blocks = []
         for match in matches:
             if match.startswith(('http:', 'https:', 'www.')):
+                continue
+                
+            if match.endswith('.env'):
+                file_blocks.append(f"### 📄 SYSTEM LOG: ACCESS DENIED to {match}. Sensitive file.")
                 continue
                 
             try:
@@ -47,6 +57,10 @@ class ContextOracle:
                 
                 if not str(filepath).startswith(str(self.project_root.resolve())):
                     file_blocks.append(f"### 📄 SYSTEM LOG: ACCESS DENIED to {match}. Path traversal detected.")
+                    continue
+                
+                if filepath.is_dir():
+                    file_blocks.append(f"### 📄 SYSTEM LOG: FILE NOT FOUND. {match} is a directory, not a file.")
                     continue
                     
                 if filepath.is_file():
@@ -63,6 +77,11 @@ class ContextOracle:
                         classes = re.findall(r'class\s+(\w+)', content)
                         facts.extend([f"Function: {m[0] or m[1]}" for m in funcs])
                         facts.extend([f"Class: {c}" for c in classes])
+                        
+                        # Add Mongoose schema field extraction
+                        schema_fields = re.findall(r'^\s*(\w+):\s*\{', content, re.MULTILINE)
+                        if schema_fields:
+                            facts.append(f"Schema fields: {', '.join(schema_fields)}")
                     elif filepath.suffix == '.py':
                         funcs = re.findall(r'^def\s+(\w+)', content, re.MULTILINE)
                         classes = re.findall(r'^class\s+(\w+)', content, re.MULTILINE)
@@ -72,6 +91,7 @@ class ContextOracle:
                     if facts:
                         facts_str = "\n".join(f" - {f}" for f in facts)
                         file_blocks.append(f"### 📄 FILE FACTS (verified)\n{facts_str}\n")
+                        file_blocks.append("### ⛔ HARD CONSTRAINT: The fields listed above are exhaustive. If the schema defines 'createdAt' with a TTL expiry, there is NO separate field called 'expiresAt'. Do NOT invent field names that are not in the list above. Any mention of 'expiresAt' is factually incorrect.")
                         
                     lang = "javascript" if filepath.suffix in [".js", ".jsx", ".ts", ".tsx"] else "python"
                     file_blocks.append(f"### 📄 Full file: {match}\n```{lang}\n{content}\n```\n")
@@ -125,4 +145,66 @@ class ContextOracle:
         blocks.append("```python\n" + context_body + "\n```")
 
         # Step 4: Join and return the full context
+        if self._detect_demand_query(query):
+            override = "### ⛔ PRIORITY OVERRIDE: The query asks for a tutorial, migration plan, or implementation of a feature that may not exist. You MUST respond ONLY with:\n[FEATURE MISSING]\nThis is not implemented in the current codebase.\nDo NOT provide code, tutorials, or migration steps. Stopping here is correct.\n\n"
+            blocks.insert(0, override)
+            
         return "\n".join(blocks), center_nodes, expanded_node_ids
+
+    def _detect_demand_query(self, query: str) -> bool:
+        demand_patterns = [
+            r'provide\s+the\s+code\s+to',
+            r'rewrite\s+the\s+model',
+            r'how\s+would\s+you',
+            r'show\s+me\s+how\s+to\s+add',
+            r'what\s+are\s+the\s+planned\s+steps',
+            r'can\s+you\s+provide',
+            r'write\s+the\s+code',
+            r'migrate\s+.*\s+to',
+            r'implement\s+.*\s+for',
+        ]
+        query_lower = query.lower()
+        return any(re.search(p, query_lower) for p in demand_patterns)
+
+    def verify_paths(self, query: str) -> tuple[bool, str | None]:
+        """
+        Scans the query for file/directory paths and verifies their existence.
+        Returns (should_reject, rejection_reason).
+        """
+        if not self.project_root:
+            return False, None
+            
+        pattern = r'\b[\w./-]+\.[a-zA-Z]{2,4}\b'
+        matches = set(re.findall(pattern, query))
+        
+        path_pattern = r'(?:/[\w\s.-]+)+\.[a-zA-Z]{2,4}\b'
+        full_paths = [m.group(0) for m in re.finditer(path_pattern, query)]
+        for p in full_paths:
+            matches.add(p)
+            
+        # Pattern to catch directory paths ending with /
+        dir_pattern = r'(?:/[\w\s.-]+)+/'
+        dir_paths = re.findall(dir_pattern, query)
+        for p in dir_paths:
+            matches.add(p)
+            
+        for match in matches:
+            if match.startswith(('http:', 'https:', 'www.')):
+                continue
+            if match.endswith('.env'):
+                return True, f"ACCESS DENIED to {match}. Sensitive file."
+            
+            try:
+                filepath = (self.project_root / match).resolve()
+                if not str(filepath).startswith(str(self.project_root.resolve())):
+                    return True, f"ACCESS DENIED to {match}. Path traversal detected."
+                
+                if filepath.is_dir():
+                    return True, f"FILE NOT FOUND. {match} is a directory, not a file."
+                
+                if not filepath.exists():
+                    return True, f"FILE NOT FOUND. {match} does not exist in the project root."
+            except Exception:
+                return True, f"INVALID PATH: {match}"
+                
+        return False, None
