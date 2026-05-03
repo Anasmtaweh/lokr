@@ -109,6 +109,10 @@ with st.sidebar:
     if needs_key:
         api_key_input = st.text_input("🔑 API Key", type="password", help="Required for external models. Uses OPENAI_API_KEY env if empty.")
     
+    with st.sidebar.expander("⚙️ Advanced Oracle Settings"):
+        custom_model = st.text_input("Custom Model Name", help="Override the dropdown selection (e.g., openai/my-model)")
+        custom_api_base = st.text_input("Custom API Base", help="Override the API endpoint (e.g., http://localhost:8000/v1)")
+    
     if st.button("⚡ Sync Vault"):
         handle_index(project_path)
     
@@ -256,17 +260,22 @@ This is not implemented in the current codebase.
                     try:
                         api_key_to_use = api_key_input if api_key_input else os.getenv("OPENAI_API_KEY", "sk-placeholder")
                         
+                        final_model = custom_model if custom_model else model_choice
                         user_message = f"<CONTEXT>\n{context}\n</CONTEXT>\n\n<QUESTION>\n{actual_q}\n</QUESTION>\n\nRemember to start your answer with either [FEATURE PRESENT] or [FEATURE MISSING]."
                         
                         kwargs = {
-                            "model": model_choice,
+                            "model": final_model,
                             "messages": [{"role": "system", "content": system_p}, {"role": "user", "content": user_message}],
                             "temperature": 0.0,
                             "top_p": 0.1
                         }
-                        if "ollama" in model_choice:
+                        
+                        if custom_api_base:
+                            kwargs["api_base"] = custom_api_base
+                        elif "ollama" in final_model:
                             kwargs["api_base"] = "http://localhost:11434"
-                            # LiteLLM explicitly needs dummy keys for some versions even with local proxies
+                            
+                        if "ollama" in final_model and not custom_api_base:
                             kwargs["api_key"] = "dummy" 
                         else:
                             kwargs["api_key"] = api_key_to_use
