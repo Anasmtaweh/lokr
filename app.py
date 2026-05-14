@@ -66,24 +66,58 @@ if "last_graph_html" not in st.session_state: st.session_state.last_graph_html =
 if "working_graph" not in st.session_state: st.session_state.working_graph = nx.DiGraph()
 if "working_centers" not in st.session_state: st.session_state.working_centers = set()
 
+@st.cache_resource
+def get_vector_db():
+    return CodebaseVectorDB()
+
 def handle_index(p_path_str: str):
     if not p_path_str: return
     p_path = Path(p_path_str).resolve()
-    with st.spinner("🧬 Indexing..."):
+    with st.spinner("🧬 Indexing (Intelligent Sync)..."):
         try:
             # FIX: Single Instance Sharing
-            db = CodebaseVectorDB()
+            db = get_vector_db()
             scanner, parser, graph = CodeScanner(p_path), CodeParser(), DependencyGraph()
             indexer = Indexer(db)
             
             files = list(scanner.get_files())
-            db.reset_collection() # Clear semantic store
-            graph.build_graph(files, parser, p_path) # Build dependency map
-            indexer.index_nodes(graph) # Embed nodes
-            
             storage = Path(".lokr")
             storage.mkdir(exist_ok=True)
-            graph.save_graph(storage / "graph.json")
+            graph_path = storage / "graph.json"
+            
+            if graph_path.exists():
+                # Intelligent Incremental Update
+                graph.load_graph(graph_path)
+                stored_root = graph.graph.graph.get("project_root")
+                
+                if stored_root and stored_root != str(p_path):
+                    # Project changed, need full reset!
+                    db.reset_collection()
+                    graph.build_graph(files, parser, p_path)
+                    indexer.index_nodes(graph)
+                    graph.save_graph(graph_path)
+                    print(f"[+] Switched to new project: {p_path}. Full Build Complete.")
+                else:
+                    # Intelligent Incremental Update
+                    delta = graph.sync_with_git(p_path, parser, files)
+                    
+                    if delta["deleted_nodes"]:
+                        indexer.delete_nodes(delta["deleted_nodes"])
+                    
+                    if delta["added_nodes"]:
+                        indexer.index_node_list(delta["added_nodes"], graph)
+                        
+                    graph.save_graph(graph_path)
+                    added_count = len(delta["added_nodes"])
+                    del_count = len(delta["deleted_nodes"])
+                    print(f"[+] Intelligent Sync: {added_count} added, {del_count} deleted.")
+            else:
+                # First time full build
+                db.reset_collection() # Clear semantic store
+                graph.build_graph(files, parser, p_path) # Build dependency map
+                indexer.index_nodes(graph) # Embed nodes
+                graph.save_graph(graph_path)
+                print("[+] Initial Vault Build Complete.")
             
             st.session_state.indexed_path = p_path_str
             st.rerun()
@@ -102,16 +136,31 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     project_path = st.text_input("📁 Vault Path", value=st.session_state.indexed_path)
-    model_choice = st.selectbox("🤖 Oracle", st.session_state.available_models)
     
-    needs_key = "ollama" not in model_choice
-    api_key_input = None
-    if needs_key:
-        api_key_input = st.text_input("🔑 API Key", type="password", help="Required for external models. Uses OPENAI_API_KEY env if empty.")
-    
-    with st.sidebar.expander("⚙️ Advanced Oracle Settings"):
-        custom_model = st.text_input("Custom Model Name", help="Override the dropdown selection (e.g., openai/my-model)")
-        custom_api_base = st.text_input("Custom API Base", help="Override the API endpoint (e.g., http://localhost:8000/v1)")
+    api_choice = st.radio("LLM Provider", ["Local (Ollama)", "Remote API (OpenAI-Compatible)"])
+
+    if api_choice == "Local (Ollama)":
+        st.session_state.api_type = "ollama"
+        custom_api_base = st.text_input("Ollama Base URL", value="http://localhost:11434", help="If running on a public space, use an Ngrok URL to connect to your local Ollama.")
+        api_key_input = "dummy"
+        
+        local_models = [m.replace("ollama/", "") for m in st.session_state.available_models if m.startswith("ollama/")]
+        if not local_models:
+            local_models = ["qwen2.5-coder:7b"]
+            
+        default_idx = local_models.index("qwen2.5-coder:7b") if "qwen2.5-coder:7b" in local_models else 0
+        model_choice = st.selectbox("🤖 Model", local_models + ["Custom..."], index=default_idx)
+        
+        if model_choice == "Custom...":
+            custom_model = st.text_input("Custom Model Name", value="qwen2.5-coder:7b")
+        else:
+            custom_model = model_choice
+            
+    else:
+        st.session_state.api_type = "openai"
+        custom_api_base = st.text_input("API Base URL", value="", placeholder="e.g., https://api.openai.com/v1")
+        custom_model = st.text_input("Model Name", value="gpt-4o", placeholder="e.g., Qwen2.5-Coder-32B-Instruct")
+        api_key_input = st.text_input("🔑 API Key", type="password", placeholder="Enter your API Key")
     
     if st.button("⚡ Sync Vault"):
         handle_index(project_path)
@@ -123,15 +172,18 @@ with st.sidebar:
         st.session_state.working_centers = set()
         st.session_state.last_graph_html = None
         st.session_state.last_rag_context = ""
-        # Wipe persisted disk data using absolute paths
+        # Safely wipe persisted data without triggering DB locks
         import shutil
+        try:
+            get_vector_db().reset_collection()
+        except Exception:
+            pass
+        
         base_path = Path(__file__).parent
         lokr_dir = base_path / ".lokr"
         if lokr_dir.exists():
             shutil.rmtree(lokr_dir)
-        vector_dir = base_path / "data" / "vector_store"
-        if vector_dir.exists():
-            shutil.rmtree(vector_dir)
+        
         st.success("✅ All indexed data cleared. Re-index your project to start fresh.")
         st.rerun()
 
@@ -163,15 +215,17 @@ with t_oracle:
         st.session_state.working_centers = set()
         st.session_state.last_graph_html = None
         st.session_state.last_rag_context = ""
-        # Wipe persisted disk data using absolute paths
+        # Safely wipe persisted data without triggering DB locks
         import shutil
+        try:
+            get_vector_db().reset_collection()
+        except Exception:
+            pass
+            
         base_path = Path(__file__).parent
         lokr_dir = base_path / ".lokr"
         if lokr_dir.exists():
             shutil.rmtree(lokr_dir)
-        vector_dir = base_path / "data" / "vector_store"
-        if vector_dir.exists():
-            shutil.rmtree(vector_dir)
         st.rerun()
 
     # Message History
@@ -190,7 +244,7 @@ with t_oracle:
             graph_path = storage / "graph.json"
             if graph_path.exists():
                 with st.spinner("Vault Reasoning..."):
-                    parser, graph, db = CodeParser(), DependencyGraph(), CodebaseVectorDB()
+                    parser, graph, db = CodeParser(), DependencyGraph(), get_vector_db()
                     graph.load_graph(graph_path)
                     oracle = ContextOracle(parser, graph, db, graph_path, ReasoningMemory(storage / "reasoning_memory.json"), project_root=Path(st.session_state.indexed_path))
                     
@@ -231,12 +285,12 @@ You MUST answer questions by explicitly quoting the provided code inside the <CO
 CRITICAL RULES:
 1. DO NOT invent middleware, logic, routes, or functions. 
 2. You must evaluate the context and start your answer with exactly one of these two flags: [FEATURE PRESENT] or [FEATURE MISSING].
-3. If you output [FEATURE MISSING], your next sentence MUST be exactly "This is not implemented in the current codebase." and you MUST stop generating. Remember: providing tutorials or examples for missing features is a hallucination. Stopping here is correct.
-4. DO NOT assume generic framework behavior like JWTs, ownership checks, or standard Express setups unless you see the exact code for them.
-5. Quote the exact code snippets to prove your answer.
-6. When the <CONTEXT> contains a 'Full file' block, you MUST use the exact class names, variable names, and method names that appear in that file. Do not invent alternative names like 'sent_emails' if the file shows 'SentReminder'. If you are unsure, quote the relevant line from the file.
+3. If you output [FEATURE MISSING], your next sentence MUST be exactly "This is not implemented in the current codebase." and you MUST stop generating.
+4. DO NOT assume generic framework behavior like HTTPS, JWTs, ownership checks, or standard Express setups unless you see the exact code for them.
+5. PROVENANCE REQUIRED: You MUST cite the exact File Path and Line Number for every single claim you make (e.g., "In `auth.js`, the code does X").
+6. When the <CONTEXT> contains a 'Full file' block, you MUST use the exact class names, variable names, and method names that appear in that file. Do not invent alternative names.
 7. Never describe what could be added; only report what is present or absent.
-8. Providing example code, tutorials, or 'how-to' guides for missing features is considered a hallucination and is strictly forbidden.
+8. Providing example code for missing features is forbidden. However, you ARE allowed to "explain" or summarize existing end-to-end flows if the underlying routes/functions are present in the context.
 9. If the context contains a SYSTEM LOG stating FILE NOT FOUND or ACCESS DENIED, you must output exactly what the log says and nothing else.
 
 EXAMPLE INTERACTION 1 (Feature Present):
@@ -260,9 +314,24 @@ This is not implemented in the current codebase.
                     try:
                         api_key_to_use = api_key_input if api_key_input else os.getenv("OPENAI_API_KEY", "sk-placeholder")
                         
-                        final_model = custom_model if custom_model else model_choice
-                        user_message = f"<CONTEXT>\n{context}\n</CONTEXT>\n\n<QUESTION>\n{actual_q}\n</QUESTION>\n\nRemember to start your answer with either [FEATURE PRESENT] or [FEATURE MISSING]."
+                        # Apply UI logic exact routing
+                        if st.session_state.api_type == "ollama":
+                            final_model = custom_model
+                        else:
+                            final_model = custom_model
+                            if not any(final_model.startswith(p) for p in ["openai/", "huggingface/", "openrouter/", "anthropic/", "groq/", "together_ai/", "ollama/"]):
+                                if custom_api_base:
+                                    final_model = f"openai/{final_model}"
+                                elif "/" in final_model:
+                                    final_model = f"huggingface/{final_model}"
+                                else:
+                                    final_model = f"openai/{final_model}"
+
+                        user_message = f"<CONTEXT>\n{context[:120000]}\n</CONTEXT>\n\n<QUESTION>\n{actual_q}\n</QUESTION>\n\nRemember to start your answer with either [FEATURE PRESENT] or [FEATURE MISSING]."
                         
+                        if len(context) > 120000:
+                            st.warning(f"⚠️ Context was extremely large and truncated from {len(context)} to 120000 characters to fit the model's context window.")
+                            
                         kwargs = {
                             "model": final_model,
                             "messages": [{"role": "system", "content": system_p}, {"role": "user", "content": user_message}],
@@ -272,21 +341,39 @@ This is not implemented in the current codebase.
                         
                         if custom_api_base:
                             kwargs["api_base"] = custom_api_base
-                        elif "ollama" in final_model:
-                            kwargs["api_base"] = "http://localhost:11434"
                             
-                        if "ollama" in final_model and not custom_api_base:
-                            kwargs["api_key"] = "dummy" 
-                        else:
-                            kwargs["api_key"] = api_key_to_use
+                        kwargs["api_key"] = "dummy" if st.session_state.api_type == "ollama" else api_key_to_use
                             
                         kwargs["stop"] = ["[FEATURE MISSING]", "This is not implemented in the current codebase."]
                             
                         print("===== CONTEXT SENT TO LLM =====")
-                        print(context)
+                        # Truncating print to keep terminal clean
+                        print(context[:500] + "\n... [Context Truncated for Logs] ...")
                         print("================================")
-                        resp = litellm.completion(**kwargs)
-                        response_text = resp.choices[0].message.content
+                        
+                        if st.session_state.api_type == "ollama":
+                            # EXACT Lokr-Assistant implementation for 100% stability on Droplets
+                            url = f"{custom_api_base.rstrip('/')}/api/chat"
+                            payload = {
+                                "model": custom_model,
+                                "messages": kwargs["messages"],
+                                "stream": False,
+                                "options": {
+                                    "temperature": 0.0,
+                                    "num_predict": 4096,
+                                    "num_ctx": 32768
+                                }
+                            }
+                            import requests
+                            r = requests.post(url, json=payload, timeout=600)
+                            r.raise_for_status()
+                            response_text = r.json().get("message", {}).get("content", "")
+                        else:
+                            resp = litellm.completion(**kwargs)
+                            if hasattr(resp, "choices") and len(resp.choices) > 0:
+                                response_text = resp.choices[0].message.content
+                            else:
+                                response_text = resp.get("message", {}).get("content", "")
                         
                         # Clamp: if the model output contains the refusal flag, cut everything after the stop phrase
                         if "[FEATURE MISSING]" in response_text:
@@ -354,7 +441,15 @@ with t_graph:
     if st.session_state.last_graph_html:
         components.html(st.session_state.last_graph_html, height=750, scrolling=False)
     else:
-        st.info("Initiate a query to generate reasoning map.")
+        if graph_path.exists():
+            with st.spinner("Rendering full workspace neural map..."):
+                full_g = DependencyGraph()
+                full_g.load_graph(graph_path)
+                all_nodes = set(full_g.graph.nodes())
+                html = GraphVisualizer.generate_3d_graph_html(full_g.graph, set(), all_nodes)
+                components.html(html, height=750, scrolling=False)
+        else:
+            st.info("Sync Vault to build the initial reasoning map.")
 
 with t_tracer:
     st.markdown('<h2>Context Path Tracer</h2>', unsafe_allow_html=True)

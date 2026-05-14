@@ -46,7 +46,7 @@ class DependencyGraph:
                 self.graph.nodes[str(abs_fp)]["import_map"] = import_map
                 
                 for imp_str in imports:
-                    imported_file = self._resolve_import_to_file(imp_str, file_paths)
+                    imported_file = self._resolve_import_to_file(imp_str, file_paths, caller_file=str(abs_fp))
                     if imported_file:
                         # Edge: Current File -> Imported File
                         self.graph.add_edge(str(abs_fp), str(imported_file), edge_type='import')
@@ -98,6 +98,7 @@ class DependencyGraph:
 
         # Store the current Git state
         self.graph.graph['commit_hash'] = self._get_current_commit(project_root)
+        self.graph.graph['project_root'] = str(project_root.resolve())
 
     def sync_with_git(self, project_root: Path, parser: Any, available_files: List[Path]) -> Dict[str, List[str]]:
         """
@@ -176,7 +177,7 @@ class DependencyGraph:
                     self.graph.nodes[abs_path_str]["import_map"] = import_map
 
                     for imp_str in imports:
-                        imported_file = self._resolve_import_to_file(imp_str, available_files)
+                        imported_file = self._resolve_import_to_file(imp_str, available_files, caller_file=abs_path_str)
                         if imported_file:
                             self.graph.add_edge(abs_path_str, str(imported_file), edge_type='import')
                     
@@ -213,6 +214,7 @@ class DependencyGraph:
 
         if has_changes:
             self.graph.graph['commit_hash'] = self._get_current_commit(project_root)
+            self.graph.graph['project_root'] = str(project_root.resolve())
             
         return delta
 
@@ -284,8 +286,27 @@ class DependencyGraph:
             if len(parts) >= 2:
                 base_module = parts[1]
         elif import_str.startswith("require("):
-            # require('express')
+            # require('express') or require('../models/User')
             base_module = import_str.split("'")[1] if "'" in import_str else (import_str.split('"')[1] if '"' in import_str else "")
+            # If the extracted module is a relative path, resolve it like a JS relative import
+            if base_module.startswith(("./", "../")):
+                if not (caller_file and available_files):
+                    return None
+                try:
+                    caller_path = Path(caller_file)
+                    base_dir = caller_path.parent
+                    target_path = (base_dir / base_module).resolve()
+                    search_paths = [target_path, target_path.with_suffix('.js'), target_path.with_suffix('.ts'), target_path.with_suffix('.jsx'), target_path.with_suffix('.tsx')]
+                    # Also check for index.js inside a directory
+                    search_paths.append(target_path / 'index.js')
+                    search_paths.append(target_path / 'index.ts')
+                    for sp in search_paths:
+                        sp_str = str(sp)
+                        if any(str(af.resolve()) == sp_str for af in available_files):
+                            return sp_str
+                    return None
+                except Exception:
+                    return None
         else:
             base_module = import_str.split(" ")[0]
 

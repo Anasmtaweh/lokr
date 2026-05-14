@@ -40,15 +40,58 @@ class Retriever:
                         if match_count >= 2: # At least method + one path keyword
                             route_hits.add(n)
 
+        # Step 0.5: Global Architecture Heuristic
+        global_hits = set()
+        global_keywords = [
+            'entire project', 'overview', 'architecture', 'explain this', 'explain the', 
+            'vibe coder', 'summary', 'high level', 'tech stack', 'frameworks', 
+            'youtube terms', 'master this project'
+        ]
+        is_global_query = any(k in query_lower for k in global_keywords)
+        
+        if is_global_query:
+            for n, d in self.graph.graph.nodes(data=True):
+                if d.get('node_type') == 'file':
+                    lower_n = n.lower()
+                    if 'readme.md' in lower_n or 'package.json' in lower_n or 'requirements.txt' in lower_n:
+                        global_hits.add(n)
+                    elif lower_n.endswith('/app.js') or lower_n.endswith('/index.js') or lower_n.endswith('/main.py') or lower_n.endswith('/app.py'):
+                        global_hits.add(n)
+
+        # Step 0.7: Exact Symbol / Keyword Heuristic
+        # Boosts exact matches like "mongoose.connect" or "jwt.sign"
+        keyword_hits = set()
+        symbols = [w for w in query.split() if len(w) > 3 and not w.lower() in ['what', 'where', 'how', 'when', 'why', 'the', 'is', 'are', 'does', 'do', 'in', 'on', 'at', 'this']]
+        
+        if symbols:
+            for n, d in self.graph.graph.nodes(data=True):
+                name = d.get('name', '')
+                if any(sym in name for sym in symbols):
+                    keyword_hits.add(n)
+
         # Step 1: Semantic Search
         results = self.db.search(query, n_results=top_k)
         initial_node_ids = {res["node_id"] for res in results if res.get("node_id")}
         
+        # Filter out scratch/mock/test files to prevent hallucinations
+        initial_node_ids = {nid for nid in initial_node_ids if '/scratch/' not in nid and 'mock' not in nid.lower() and '/test/' not in nid}
+        
         # Inject exact route hits
         initial_node_ids.update(route_hits)
         
+        # Inject global hits
+        initial_node_ids.update(global_hits)
+        
+        # Inject exact keyword hits
+        initial_node_ids.update(keyword_hits)
+        
         # Filter out stale IDs that no longer exist in the current graph
         initial_node_ids = {nid for nid in initial_node_ids if nid in self.graph.graph}
+        
+        if is_global_query and global_hits:
+            # Skip deep 1-hop expansion for global queries to prevent noise
+            # and just return the root architectural files.
+            return initial_node_ids, set(initial_node_ids)
 
         # Step 2: 1-Hop Expansion
         context_node_ids = set(initial_node_ids)
@@ -74,12 +117,18 @@ class Retriever:
                 if edge_type in ('calls', 'depends_on', 'parent_schema'):
                     context_node_ids.add(neighbor)
             
-            # --- Upward Expansion (Parent Classes) ---
-            # For each retrieved node, check if it is part of a class
+            # --- Upward Expansion (Parent Classes AND Parent Files) ---
+            # For each retrieved node, pull in the parent class or parent file
+            # so top-level initialization code (mongoose.connect, app.listen, etc.)
+            # is always visible to the LLM.
             for neighbor, _, data in self.graph.graph.in_edges(node_id, data=True):
                 if data.get('edge_type') == 'contains':
                     pred_data = self.graph.graph.nodes[neighbor]
                     if pred_data.get('node_type') == 'class':
+                        context_node_ids.add(neighbor)
+                    elif pred_data.get('node_type') == 'file':
+                        # Pull in the parent file node itself so the LLM sees the top-level
+                        # initialization context (like mongoose.connect, app.listen)
                         context_node_ids.add(neighbor)
         
         return initial_node_ids, context_node_ids
@@ -179,8 +228,14 @@ class Retriever:
             caller_names = [n.split("::")[-1] for n in callers_in_context]
             
             # Format snippet
+            node_type = node_data.get("node_type", "function")
+            
             if "source_code" in node_data:
                 code = node_data["source_code"]
+            elif node_type == 'file':
+                # Grab the top 200 lines to ensure top-level setups like mongoose.connect
+                # are fully captured, without dumping massive 1000-line files.
+                code = self.get_snippet(filepath, 1, 200) + "\n... [Remaining file components listed individually below] ..."
             elif start and end:
                 code = self.get_snippet(filepath, start, end)
             else:
@@ -188,7 +243,6 @@ class Retriever:
 
             # Build block header
             header_lines = []
-            node_type = node_data.get("node_type", "function")
             
             if i == 0:
                 header_lines.append("### 🚀 Execution Path Entry Point ###\n")
@@ -203,6 +257,8 @@ class Retriever:
                 header_lines.append(f"Mongoose Schema: `{name}` (File: `{filepath}`)\n")
             elif node_type == "variable":
                 header_lines.append(f"Module Variable: `{name}`\n")
+            elif node_type == "file":
+                header_lines.append(f"Global Architecture File: `{filepath}`\n")
             else:
                 header_lines.append(f"Function/Route: `{name}` (File: `{filepath}`)\n")
             

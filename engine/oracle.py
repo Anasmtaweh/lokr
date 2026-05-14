@@ -53,7 +53,8 @@ class ContextOracle:
                 continue
                 
             try:
-                filepath = (self.project_root / match).resolve()
+                # Strip leading slashes to prevent Path joining from treating it as absolute
+                filepath = (self.project_root / match.lstrip('/')).resolve()
                 
                 if not str(filepath).startswith(str(self.project_root.resolve())):
                     file_blocks.append(f"### 📄 SYSTEM LOG: ACCESS DENIED to {match}. Path traversal detected.")
@@ -155,10 +156,10 @@ class ContextOracle:
         demand_patterns = [
             r'provide\s+the\s+code\s+to',
             r'rewrite\s+the\s+model',
-            r'how\s+would\s+you',
+            # r'how\s+would\s+you',  <-- Relaxed: common investigative query
             r'show\s+me\s+how\s+to\s+add',
             r'what\s+are\s+the\s+planned\s+steps',
-            r'can\s+you\s+provide',
+            # r'can\s+you\s+provide', <-- Relaxed
             r'write\s+the\s+code',
             r'migrate\s+.*\s+to',
             r'implement\s+.*\s+for',
@@ -182,12 +183,6 @@ class ContextOracle:
         for p in full_paths:
             matches.add(p)
             
-        # Pattern to catch directory paths ending with /
-        dir_pattern = r'(?:/[\w\s.-]+)+/'
-        dir_paths = re.findall(dir_pattern, query)
-        for p in dir_paths:
-            matches.add(p)
-            
         for match in matches:
             if match.startswith(('http:', 'https:', 'www.')):
                 continue
@@ -195,7 +190,8 @@ class ContextOracle:
                 return True, f"ACCESS DENIED to {match}. Sensitive file."
             
             try:
-                filepath = (self.project_root / match).resolve()
+                # Strip leading slashes to prevent Path joining from treating it as absolute
+                filepath = (self.project_root / match.lstrip('/')).resolve()
                 if not str(filepath).startswith(str(self.project_root.resolve())):
                     return True, f"ACCESS DENIED to {match}. Path traversal detected."
                 
