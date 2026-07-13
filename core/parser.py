@@ -1,4 +1,5 @@
 import json
+import yaml
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import tree_sitter
@@ -87,15 +88,60 @@ class CodeParser:
 
         # Crucial Fallback: Raw text for unsupported files
         if ext not in self.languages:
-            return {
+            result = {
                 "file_path": str(filepath),
                 "imports": [],
                 "classes": [],
                 "functions": [],
                 "variables": [],
                 "schemas": [],
+                "configs": [],
+                "executions": [],
                 "raw_text": code_text
             }
+            if ext == '.json':
+                try:
+                    data = json.loads(code_text)
+                    if filepath.name == 'package.json':
+                        for key in ['dependencies', 'devDependencies', 'scripts']:
+                            if key in data:
+                                result["configs"].append({
+                                    "name": key,
+                                    "source_code": f'"{key}": ' + json.dumps(data[key], indent=2),
+                                    "lineno": 1,
+                                    "end_lineno": 1
+                                })
+                    else:
+                        result["configs"].append({
+                            "name": "json_data",
+                            "source_code": code_text[:2000],
+                            "lineno": 1,
+                            "end_lineno": 1
+                        })
+                except json.JSONDecodeError:
+                    pass
+            elif ext in ['.yml', '.yaml']:
+                try:
+                    data = yaml.safe_load(code_text)
+                    if isinstance(data, dict):
+                        for key, val in data.items():
+                            result["configs"].append({
+                                "name": str(key),
+                                "source_code": yaml.dump({key: val})[:2000],
+                                "lineno": 1,
+                                "end_lineno": 1
+                            })
+                except Exception:
+                    pass
+            elif ext in ['.env', '.env.example'] or filepath.name == 'Dockerfile':
+                result["configs"].append({
+                    "name": filepath.name,
+                    "source_code": code_text[:2000],
+                    "lineno": 1,
+                    "end_lineno": len(code_text.splitlines())
+                })
+            
+            return result
 
         # AST Parsing for supported files
         self.parser.language = self.languages[ext]
@@ -110,6 +156,8 @@ class CodeParser:
             "functions": [],
             "variables": [],
             "schemas": [],
+            "configs": [],
+            "executions": [],
             "variable_map": {} # Temporary map for merging re-assignments
         }
 
@@ -202,6 +250,9 @@ class CodeParser:
             expr = node.child_by_field_name('expression')
             if expr and expr.type == 'new_expression':
                  self._extract_mongoose_schema(node, expr, code_bytes, result)
+            # Catch top-level executions (function callings)
+            elif not current_class and not self._is_inside_function(node):
+                 self._extract_execution(node, code_bytes, result)
 
         # Recurse into children
         for child in node.children:
@@ -400,6 +451,57 @@ class CodeParser:
                         "lineno": start_line,
                         "end_lineno": end_line
                     })
+
+    def _extract_execution(self, node: tree_sitter.Node, code_bytes: bytes, result: Dict[str, Any]) -> None:
+        """Extracts top-level execution statements (like cron.schedule or app.use) into execution nodes."""
+        expr = node.child_by_field_name('expression')
+        if not expr:
+            expr = node.children[0] if node.children else None
+            
+        if not expr:
+            return
+            
+        is_call = False
+        if expr.type == 'call_expression':
+            is_call = True
+        elif expr.type == 'await_expression':
+            inner_expr = expr.children[1] if len(expr.children) > 1 else None
+            if inner_expr and inner_expr.type == 'call_expression':
+                is_call = True
+                expr = inner_expr
+                
+        if is_call:
+            start_row = node.start_point[0]
+            end_row = node.end_point[0]
+            lines = code_bytes.decode('utf-8', errors='ignore').splitlines()
+            snippet = "\n".join(lines[start_row:end_row + 1])
+            
+            func_node = expr.child_by_field_name('function')
+            base_name = "unknown_call"
+            if func_node:
+                base_name = func_node.text.decode('utf-8')
+                
+            # If the snippet is massive (e.g. huge IIFE), we might want to truncate it, 
+            # but usually top-level calls are reasonably sized. We'll cap at 1000 chars just in case.
+            if len(snippet) > 1000:
+                snippet = snippet[:1000] + "\n... [Truncated execution block]"
+                
+            synthetic_name = f"EXEC::{base_name}"
+            
+            calls_set = set()
+            self._extract_calls(node, calls_set)
+            
+            uses_set = set()
+            self._extract_uses(node, uses_set)
+            
+            result["executions"].append({
+                "name": synthetic_name,
+                "source_code": snippet,
+                "lineno": start_row + 1,
+                "end_lineno": end_row + 1,
+                "calls": list(calls_set),
+                "uses": list(uses_set)
+            })
 
     def _extract_mongoose_hook(self, node: tree_sitter.Node, code_bytes: bytes, result: Dict[str, Any]) -> None:
         """Extracts Mongoose schema hooks/methods into functions linked to parent schemas (BUG 2 fix)."""

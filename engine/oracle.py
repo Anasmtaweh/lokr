@@ -12,7 +12,7 @@ class ContextOracle:
     and dependency graph traversal to generate rich context for LLM prompting.
     """
 
-    def __init__(self, parser: Any, graph: Any, db: Any, graph_path: Optional[str] = None, reasoning_memory: Optional[Any] = None, project_root: Optional[Path] = None) -> None:
+    def __init__(self, parser: Any, graph: Any, db: Any, graph_path: Optional[str] = None, reasoning_memory: Optional[Any] = None, project_root: Optional[Path] = None, read_only: bool = False) -> None:
         """
         Stores references to the initialized Phase 2, 3, and 4 engine components.
 
@@ -29,16 +29,19 @@ class ContextOracle:
         self.graph_path = Path(graph_path) if graph_path else None
         self.reasoning_memory = reasoning_memory
         self.project_root = project_root
+        self.read_only = read_only
 
     def _include_explicit_files(self, query: str) -> str:
         if not self.project_root:
             return ""
             
-        pattern = r'\b[\w./-]+\.[a-zA-Z]{2,4}\b'
+        # Only match paths that contain at least one slash (e.g., ./file.js, /path/to/file.js, backend/server.js)
+        # This prevents matching technologies like 'Express.js' or 'Next.js'
+        pattern = r'\b(?:[\w.-]+/)+[\w.-]+\.[a-zA-Z]{2,8}\b'
         matches = set(re.findall(pattern, query))
         
-        # Backup pattern to capture full absolute paths with spaces
-        path_pattern = r'(?:/[\w\s.-]+)+\.[a-zA-Z]{2,4}\b'
+        # Backup pattern for absolute paths with spaces
+        path_pattern = r'(?<![\w.-])(?:/[\w\s.-]+)+\.[a-zA-Z]{2,8}\b'
         full_paths = [m.group(0) for m in re.finditer(path_pattern, query)]
         for p in full_paths:
             matches.add(p)
@@ -92,10 +95,10 @@ class ContextOracle:
                     if facts:
                         facts_str = "\n".join(f" - {f}" for f in facts)
                         file_blocks.append(f"### 📄 FILE FACTS (verified)\n{facts_str}\n")
-                        file_blocks.append("### ⛔ HARD CONSTRAINT: The fields listed above are exhaustive. If the schema defines 'createdAt' with a TTL expiry, there is NO separate field called 'expiresAt'. Do NOT invent field names that are not in the list above. Any mention of 'expiresAt' is factually incorrect.")
                         
                     lang = "javascript" if filepath.suffix in [".js", ".jsx", ".ts", ".tsx"] else "python"
-                    file_blocks.append(f"### 📄 Full file: {match}\n```{lang}\n{content}\n```\n")
+                    numbered_content = "\n".join([f"{i + 1} | {line}" for i, line in enumerate(content.splitlines())])
+                    file_blocks.append(f"### 📄 Full file: {match}\n```{lang}\n{numbered_content}\n```\n")
                 else:
                     file_blocks.append(f"### 📄 SYSTEM LOG: FILE NOT FOUND. {match} does not exist in the project root.")
             except Exception as e:
@@ -124,16 +127,17 @@ class ContextOracle:
         context_body = self.retriever.build_context(expanded_node_ids)
         
         # Step 4: Update Usage Statistics (Feedback Loop)
-        weights = {nid: 1 for nid in expanded_node_ids}
-        for nid in center_nodes:
-            weights[nid] = 2  # Boost semantic hits
-        
-        self.graph.increment_usage(weights)
-        if self.graph_path:
-            self.graph.save_graph(self.graph_path)
+        if not self.read_only:
+            weights = {nid: 1 for nid in expanded_node_ids}
+            for nid in center_nodes:
+                weights[nid] = 2  # Boost semantic hits
+            
+            self.graph.increment_usage(weights)
+            if self.graph_path:
+                self.graph.save_graph(self.graph_path)
 
         # Step 5: Update Reasoning Memory (Persistent logical links)
-        if self.reasoning_memory:
+        if self.reasoning_memory and not self.read_only:
             self.reasoning_memory.record_reasoning_path(expanded_node_ids, query)
             self.reasoning_memory.save()
 
@@ -169,38 +173,7 @@ class ContextOracle:
 
     def verify_paths(self, query: str) -> tuple[bool, str | None]:
         """
-        Scans the query for file/directory paths and verifies their existence.
-        Returns (should_reject, rejection_reason).
+        Disabled. We now rely on the AI's native understanding rather than 
+        a brittle regex that mistakes frameworks (Express.js) for missing files.
         """
-        if not self.project_root:
-            return False, None
-            
-        pattern = r'\b[\w./-]+\.[a-zA-Z]{2,4}\b'
-        matches = set(re.findall(pattern, query))
-        
-        path_pattern = r'(?:/[\w\s.-]+)+\.[a-zA-Z]{2,4}\b'
-        full_paths = [m.group(0) for m in re.finditer(path_pattern, query)]
-        for p in full_paths:
-            matches.add(p)
-            
-        for match in matches:
-            if match.startswith(('http:', 'https:', 'www.')):
-                continue
-            if match.endswith('.env'):
-                return True, f"ACCESS DENIED to {match}. Sensitive file."
-            
-            try:
-                # Strip leading slashes to prevent Path joining from treating it as absolute
-                filepath = (self.project_root / match.lstrip('/')).resolve()
-                if not str(filepath).startswith(str(self.project_root.resolve())):
-                    return True, f"ACCESS DENIED to {match}. Path traversal detected."
-                
-                if filepath.is_dir():
-                    return True, f"FILE NOT FOUND. {match} is a directory, not a file."
-                
-                if not filepath.exists():
-                    return True, f"FILE NOT FOUND. {match} does not exist in the project root."
-            except Exception:
-                return True, f"INVALID PATH: {match}"
-                
         return False, None

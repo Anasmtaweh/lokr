@@ -284,20 +284,21 @@ You MUST answer questions by explicitly quoting the provided code inside the <CO
 
 CRITICAL RULES:
 1. DO NOT invent middleware, logic, routes, or functions. 
-2. You must evaluate the context and start your answer with exactly one of these two flags: [FEATURE PRESENT] or [FEATURE MISSING].
+2. You must evaluate the context and start your answer with exactly one of these three flags: [FEATURE PRESENT], [FEATURE MISSING], or [CANNOT DETERMINE FROM STATIC CODE].
 3. If you output [FEATURE MISSING], your next sentence MUST be exactly "This is not implemented in the current codebase." and you MUST stop generating.
-4. DO NOT assume generic framework behavior like HTTPS, JWTs, ownership checks, or standard Express setups unless you see the exact code for them.
-5. PROVENANCE REQUIRED: You MUST cite the exact File Path and Line Number for every single claim you make (e.g., "In `auth.js`, the code does X").
-6. When the <CONTEXT> contains a 'Full file' block, you MUST use the exact class names, variable names, and method names that appear in that file. Do not invent alternative names.
-7. Never describe what could be added; only report what is present or absent.
-8. Providing example code for missing features is forbidden. However, you ARE allowed to "explain" or summarize existing end-to-end flows if the underlying routes/functions are present in the context.
-9. If the context contains a SYSTEM LOG stating FILE NOT FOUND or ACCESS DENIED, you must output exactly what the log says and nothing else.
+4. If you output [CANNOT DETERMINE FROM STATIC CODE], your next sentence MUST explain that the feature depends on runtime variables (like .env config) or external configuration.
+5. DO NOT assume generic framework behavior like HTTPS, JWTs, ownership checks, or standard Express setups unless you see the exact code for them.
+6. PROVENANCE REQUIRED: For every single claim you make, you MUST cite the exact file path relative to the project root, using this exact format: `[filepath:line_number]` (e.g. `[backend/config/config.js:16]`). You MUST wrap the citation in backticks. If citing multiple lines, you MUST create a separate citation for each line (e.g. `[file.js:1]` and `[file.js:22]`). DO NOT use commas or line ranges. Do not use terms like "line 16" or "in file X".
+7. When the <CONTEXT> contains a 'Full file' block, you MUST use the exact class names, variable names, and method names that appear in that file. Do not invent alternative names.
+8. Never describe what could be added; only report what is present or absent.
+9. Providing example code for missing features is forbidden. However, you ARE allowed to "explain" or summarize existing end-to-end flows if the underlying routes/functions are present in the context.
+10. If a question asks about a specific variable or function in an explicitly requested file, you MUST scan the ENTIRE file provided in the context before concluding it is [FEATURE MISSING]. Do not assume it is missing just because it is not at the top of the file.
 
 EXAMPLE INTERACTION 1 (Feature Present):
-User: <QUESTION>What middleware protects the users route?</QUESTION>
-Context: <CONTEXT>app.use('/users', userRoutes);</CONTEXT>
+User: <QUESTION>Does the backend use Express as its web framework?</QUESTION>
+Context: <CONTEXT>const express = require('express'); const app = express(); app.listen(3001);</CONTEXT>
 Assistant: [FEATURE PRESENT]
-Based on the context provided, there is no specific auth middleware protecting the users route. It is only mounted via `app.use('/users', userRoutes);`.
+The backend uses Express as its web framework. In `server.js`, line 1: `const express = require('express');` imports Express, line 2 creates the app instance, and line 3 starts the server on port 3001.
 
 EXAMPLE INTERACTION 2 (Refusing to Speculate):
 User: <QUESTION>How do we implement Pinecone or Twilio MFA?</QUESTION>
@@ -305,11 +306,11 @@ Context: <CONTEXT> ... (no mention of Pinecone or MFA) ... </CONTEXT>
 Assistant: [FEATURE MISSING]
 This is not implemented in the current codebase.
 
-EXAMPLE INTERACTION 3 (Rate Limiting check):
-User: <QUESTION>Can you show me a rate-limiting example?</QUESTION>
-Context: <CONTEXT> ... (no mention of express-rate-limit) ... </CONTEXT>
-Assistant: [FEATURE MISSING]
-This is not implemented in the current codebase.
+EXAMPLE INTERACTION 3 (Runtime Ambiguity):
+User: <QUESTION>Does the project use MongoDB Atlas?</QUESTION>
+Context: <CONTEXT>mongoose.connect(config.DB_URL)</CONTEXT>
+Assistant: [CANNOT DETERMINE FROM STATIC CODE]
+The database provider is determined at runtime by the DB_URL environment variable, so static analysis cannot confirm if it is Atlas or a local instance.
 """
                     try:
                         api_key_to_use = api_key_input if api_key_input else os.getenv("OPENAI_API_KEY", "sk-placeholder")
@@ -327,7 +328,7 @@ This is not implemented in the current codebase.
                                 else:
                                     final_model = f"openai/{final_model}"
 
-                        user_message = f"<CONTEXT>\n{context[:120000]}\n</CONTEXT>\n\n<QUESTION>\n{actual_q}\n</QUESTION>\n\nRemember to start your answer with either [FEATURE PRESENT] or [FEATURE MISSING]."
+                        user_message = f"<CONTEXT>\n{context[:120000]}\n</CONTEXT>\n\n<QUESTION>\n{actual_q}\n</QUESTION>\n\nRemember to start your answer with [FEATURE PRESENT], [FEATURE MISSING], or [CANNOT DETERMINE FROM STATIC CODE]."
                         
                         if len(context) > 120000:
                             st.warning(f"⚠️ Context was extremely large and truncated from {len(context)} to 120000 characters to fit the model's context window.")
@@ -383,25 +384,9 @@ This is not implemented in the current codebase.
                             else:
                                 response_text = "[FEATURE MISSING]\nThis is not implemented in the current codebase."
 
-                        # Verification guard: if the model falsely claims [FEATURE PRESENT] for a missing file,
-                        # override with the canonical refusal.
-                        if "[FEATURE PRESENT]" in response_text:
-                            if "SYSTEM LOG: FILE NOT FOUND" in context or "SYSTEM LOG: ACCESS DENIED" in context:
-                                response_text = "[FEATURE MISSING]\nThis is not implemented in the current codebase."
-
                         # Fallback: if the model produced no output, provide a canonical refusal
                         if not response_text or response_text.strip() == "":
                             response_text = "[FEATURE MISSING]\nThis is not implemented in the current codebase."
-
-                        # Final clamp: if the model invented "expiresAt", replace with the real schema
-                        if "expiresat" in response_text.lower():
-                            response_text = """[FEATURE PRESENT]
-The PasswordResetToken schema does NOT include a field called 'expiresAt'. The real schema uses a 'createdAt' field with a TTL index (expires: 3600) that automatically deletes documents after 1 hour. Here is the actual schema definition:
-createdAt: {
-    type: Date,
-    default: Date.now,
-    expires: 3600
-}"""
 
                         st.session_state.messages.append({"role": "assistant", "content": response_text})
                         

@@ -1,0 +1,62 @@
+[
+  {
+    "question": "In network.py, what is the exact number of output channels for the conv1 layer in the AlphaZeroNet class?",
+    "type": "factual",
+    "expected_flag": "[FEATURE PRESENT]"
+  },
+  {
+    "question": "Does the AlphaZeroNet class in network.py use LayerNorm or BatchNorm2d after its convolutional layers?",
+    "type": "factual",
+    "expected_flag": "[FEATURE PRESENT]"
+  },
+  {
+    "question": "In the DuelingDQN model implementation, what is the exact number of input channels for conv1?",
+    "type": "factual",
+    "expected_flag": "[FEATURE PRESENT]"
+  },
+  {
+    "question": "Does the get_move route in web/app.py support a 'SHARK MODE' configuration for AlphaZero where use_material_bias is explicitly set to True?",
+    "type": "factual",
+    "expected_flag": "[FEATURE PRESENT]"
+  },
+  {
+    "question": "In web/app.py, what is the exact value of the DRAW_LIMIT variable used inside the check_and_enforce_draw() function?",
+    "type": "factual",
+    "expected_flag": "[FEATURE PRESENT]"
+  },
+  {
+    "question": "Does the AlphaZeroNet implementation use an LSTM or GRU layer to track sequential board states over time?",
+    "type": "adversarial",
+    "expected_flag": "[FEATURE MISSING]"
+  },
+  {
+    "question": "Does the DuelingDQN class initialize a torch.optim.Adam optimizer internally inside its __init__ method?",
+    "type": "adversarial",
+    "expected_flag": "[FEATURE MISSING]"
+  },
+  {
+    "question": "Is there a webhook handler in web/app.py specifically designed for processing Stripe tournament payments?",
+    "type": "adversarial",
+    "expected_flag": "[FEATURE MISSING]"
+  },
+  {
+    "question": "Does the project include a Django ORM models.py file to store game replays in a PostgreSQL database?",
+    "type": "adversarial",
+    "expected_flag": "[FEATURE MISSING]"
+  },
+  {
+    "question": "Does the CheckersEnv game wrapper import and use Ray Tune for hyperparameter optimization?",
+    "type": "adversarial",
+    "expected_flag": "[FEATURE MISSING]"
+  },
+  {
+    "question": "What is the exact port number the Flask server binds to when executed via an external Docker Compose network mapping at runtime?",
+    "type": "runtime_ambiguous",
+    "expected_flag": "[CANNOT DETERMINE FROM STATIC CODE]"
+  },
+  {
+    "question": "What exact absolute file path is dynamically passed to the load_agent function at runtime when a user selects a D3QN checkpoint in the UI?",
+    "type": "runtime_ambiguous",
+    "expected_flag": "[CANNOT DETERMINE FROM STATIC CODE]"
+  }
+]

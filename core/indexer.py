@@ -22,12 +22,12 @@ def format_node_for_embedding(node_id: str, node_data: Dict[str, Any]) -> str:
     
     start_line = node_data.get("lineno")
     end_line = node_data.get("end_lineno")
-    snippet = ""
-    if start_line and end_line:
+    snippet = node_data.get("source_code", "")
+    if start_line and end_line and not snippet:
         snippet = get_snippet(filepath, start_line, end_line)
         # Cap snippet length to prevent blowing up the embedding context
-        if len(snippet) > 800:
-            snippet = snippet[:800] + "\n...[truncated]"
+    if len(snippet) > 800:
+        snippet = snippet[:800] + "\n...[truncated]"
 
     if node_type == "class":
         return f"{filepath} :: Class {name}\nDocstring: {docstring}\nCode:\n{snippet}"
@@ -35,6 +35,10 @@ def format_node_for_embedding(node_id: str, node_data: Dict[str, Any]) -> str:
         return f"{filepath} :: Mongoose Schema {name}\nCode:\n{snippet}"
     elif node_type == "variable":
         return f"{filepath} :: Global Variable {name}\nCode:\n{snippet}"
+    elif node_type == "config":
+        return f"{filepath} :: Config Block {name}\nCode:\n{snippet}"
+    elif node_type == "execution":
+        return f"{filepath} :: Execution Block {name}\nCode:\n{snippet}"
     else:
         signature = node_data.get("signature", "unknown")
         return f"{filepath} :: {name}\nSignature: {signature}\nDocstring: {docstring}\nCode:\n{snippet}"
@@ -51,7 +55,7 @@ class Indexer:
         """
         Indexes all function and class nodes currently present in the graph.
         """
-        nodes = [n for n, d in graph.graph.nodes(data=True) if d.get("node_type") in ("function", "class", "schema", "variable")]
+        nodes = [n for n, d in graph.graph.nodes(data=True) if d.get("node_type") in ("function", "class", "schema", "variable", "config", "execution")]
         self.index_node_list(nodes, graph)
 
     def index_node_list(self, node_ids: List[str], graph) -> None:
@@ -71,8 +75,8 @@ class Indexer:
             node_data = graph.graph.nodes[nid]
             node_type = node_data.get("node_type")
             
-            # Index classes, functions, schemas, variables
-            if node_type not in ("function", "class", "schema", "variable"):
+            # Index classes, functions, schemas, variables, configs, executions
+            if node_type not in ("function", "class", "schema", "variable", "config", "execution"):
                 continue
             
             doc = format_node_for_embedding(nid, node_data)

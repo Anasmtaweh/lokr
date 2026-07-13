@@ -65,12 +65,26 @@ class DependencyGraph:
                     self.graph.add_node(var_id, node_type='variable', **var)
                     self.graph.add_edge(str(abs_fp), var_id, edge_type='contains')
                     
+                # Build Config nodes
+                configs = parsed_data.get("configs", [])
+                for cfg in configs:
+                    cfg_id = f"{abs_fp}::CONFIG::{cfg['name']}"
+                    self.graph.add_node(cfg_id, node_type='config', **cfg)
+                    self.graph.add_edge(str(abs_fp), cfg_id, edge_type='contains')
+                    
                 # Build Schema nodes (BUG 2)
                 schemas = parsed_data.get("schemas", [])
                 for sch in schemas:
                     sch_id = f"{abs_fp}::SCHEMA::{sch['name']}"
                     self.graph.add_node(sch_id, node_type='schema', **sch)
                     self.graph.add_edge(str(abs_fp), sch_id, edge_type='contains')
+
+                # Build Execution nodes
+                executions = parsed_data.get("executions", [])
+                for idx, exe in enumerate(executions):
+                    exe_id = f"{abs_fp}::{exe['name']}_{idx}"
+                    self.graph.add_node(exe_id, node_type='execution', **exe)
+                    self.graph.add_edge(str(abs_fp), exe_id, edge_type='contains')
 
                 # Build Function nodes and 'contains' edges
                 functions = parsed_data.get("functions", [])
@@ -187,6 +201,13 @@ class DependencyGraph:
                         cls_id = f"{abs_path_str}::{cls['name']}"
                         self.graph.add_node(cls_id, node_type='class', **cls)
                         self.graph.add_edge(abs_path_str, cls_id, edge_type='contains')
+                        
+                    # Add configs
+                    configs = parsed_data.get("configs", [])
+                    for cfg in configs:
+                        cfg_id = f"{abs_path_str}::CONFIG::{cfg['name']}"
+                        self.graph.add_node(cfg_id, node_type='config', **cfg)
+                        self.graph.add_edge(abs_path_str, cfg_id, edge_type='contains')
 
                     # Add functions
                     new_function_ids = []
@@ -203,6 +224,15 @@ class DependencyGraph:
                         self.graph.add_edge(parent_id, func_id, edge_type='contains')
                         new_function_ids.append(func_id)
                         delta["added_nodes"].append(func_id)
+                    
+                    # Add execution nodes
+                    executions = parsed_data.get("executions", [])
+                    for idx, exe in enumerate(executions):
+                        exe_id = f"{abs_path_str}::{exe['name']}_{idx}"
+                        self.graph.add_node(exe_id, node_type='execution', **exe)
+                        self.graph.add_edge(abs_path_str, exe_id, edge_type='contains')
+                        new_function_ids.append(exe_id)
+                        delta["added_nodes"].append(exe_id)
                     
                     # Resolve calls for newly added functions
                     if new_function_ids:
@@ -420,9 +450,9 @@ class DependencyGraph:
             available_files (List[Path]): List of all project files for import resolution.
         """
         if function_node_ids is None:
-            # All function nodes in the graph
+            # All function and execution nodes in the graph
             function_node_ids = [n for n, d in self.graph.nodes(data=True) 
-                                if d.get('node_type') == 'function']
+                                if d.get('node_type') in ('function', 'execution')]
         
         # Build lookup maps for faster resolution
         name_map = {}

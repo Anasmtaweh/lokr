@@ -23,6 +23,8 @@ class CodeScanner:
         ".html", ".htm", ".css",
         # PHP
         ".php", ".php5", ".phtml",
+        # Config & Data
+        ".json", ".yml", ".yaml", ".env", ".example", ""
     }
 
     def __init__(self, target_dir: str | Path, config_path: str | Path = "config.yaml") -> None:
@@ -117,6 +119,7 @@ class CodeScanner:
                 continue
 
             # Only include files with explicitly supported extensions
+            # Note: Dockerfiles have no extension (path.suffix == "")
             if path.suffix.lower() not in self.SUPPORTED_EXTENSIONS:
                 continue
 

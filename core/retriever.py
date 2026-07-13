@@ -150,7 +150,8 @@ class Retriever:
             safe_start = max(0, start - 1)
             safe_end = min(len(lines), end)
             
-            return "".join(lines[safe_start:safe_end])
+            snippet_lines = [f"{safe_start + i + 1} | {line}" for i, line in enumerate(lines[safe_start:safe_end])]
+            return "".join(snippet_lines)
         except Exception as e:
             return f"# Error reading snippet from {filepath}: {e}"
 
@@ -233,9 +234,9 @@ class Retriever:
             if "source_code" in node_data:
                 code = node_data["source_code"]
             elif node_type == 'file':
-                # Grab the top 200 lines to ensure top-level setups like mongoose.connect
+                # Grab the top 500 lines to ensure top-level setups like mongoose.connect
                 # are fully captured, without dumping massive 1000-line files.
-                code = self.get_snippet(filepath, 1, 200) + "\n... [Remaining file components listed individually below] ..."
+                code = self.get_snippet(filepath, 1, 500) + "\n... [Remaining file components listed individually below] ..."
             elif start and end:
                 code = self.get_snippet(filepath, start, end)
             else:
@@ -251,16 +252,10 @@ class Retriever:
             else:
                 header_lines.append("### 🔗 Related Context ###\n")
 
-            if node_type == "class":
-                header_lines.append(f"Class Definition: `{name}` (File: `{filepath}`)\n")
-            elif node_type == "schema":
-                header_lines.append(f"Mongoose Schema: `{name}` (File: `{filepath}`)\n")
-            elif node_type == "variable":
-                header_lines.append(f"Module Variable: `{name}`\n")
-            elif node_type == "file":
-                header_lines.append(f"Global Architecture File: `{filepath}`\n")
-            else:
-                header_lines.append(f"Function/Route: `{name}` (File: `{filepath}`)\n")
+            line_info = f" (Lines {start}-{end})" if start and end else ""
+            
+            # Universal, AI-native provenance header
+            header_lines.append(f"Code Snippet from `{filepath}`{line_info}:\n")
             
             # List immediate callees that are also in our context
             callees_in_context = [
@@ -268,7 +263,9 @@ class Retriever:
             ]
             if callees_in_context:
                 callee_names = [n.split("::")[-1] for n in callees_in_context]
-                header_lines.append(f"Calls: {', '.join([f'`{c}`' for c in callee_names])}\n")
+                # Clean any synthetic prefixes so the AI isn't confused
+                clean_callees = [c.replace('EXEC::', '') for c in callee_names]
+                header_lines.append(f"Calls: {', '.join([f'`{c}`' for c in clean_callees])}\n")
 
             lang = "javascript" if node_type in ("variable", "schema") or filepath.endswith((".js", ".ts")) else "python"
 
