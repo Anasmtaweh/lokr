@@ -115,7 +115,7 @@ class ContextOracle:
         center_nodes, expanded_node_ids = self.retriever.search_and_expand(query, top_k=top_k)
         
         if not expanded_node_ids:
-            blocks.append("_No relevant function nodes found in the active workspace._")
+            blocks.append("### 📄 SYSTEM LOG: NO MATCHING CODE FOUND.\nThere are no files, classes, or functions in the codebase that match this query. You must conclude [FEATURE MISSING].")
             return "\n".join(blocks), set(), set()
 
         # Step 3: Build Context from Nodes

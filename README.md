@@ -48,24 +48,24 @@ Lokr includes multiple **programmatic clamps** to prevent the LLM from inventing
 
 ## Benchmarks & Reliability Testing
 
-Lokr is tested continuously against real, undocumented codebases to ensure its AST Context Retriever and static analysis clamps hold up against diverse architectures. We don't over-sell these projects—they are real-world codebases with realistic flaws.
+Lokr is tested continuously against real, undocumented codebases to ensure its AST Context Retriever and static analysis clamps hold up against diverse architectures. We don't over-sell these projects—they are real-world codebases with realistic flaws, and we report the full range of results, not just the best run.
 
 **1. Standard MVC Architecture (`pet-ai-project`)**
 - **Profile:** A standard 10,000-line Express/React web application.
 - **Difficulty:** 6.5/10 (High file density, standard web patterns).
-- **Score:** **99% Accuracy (95/96 queries passed)**
-- **Takeaway:** Lokr easily navigated standard MVC boilerplate. It correctly identified missing Docker setups and hallucination traps, but failed exactly once when asked to predict the runtime `.env` port without seeing the `.env` file.
+- **Score:** **90.6% Accuracy (87/96 queries passed across 8 runs)**
+- **Takeaway:** Lokr reliably caught adversarial hallucination traps and correctly flagged runtime-dependent values (env vars) as indeterminable. Two recurring weaknesses surfaced: an intermittent hallucination on `Scheduler.js` queries (fabricated citations on complex recurring-event logic), and inconsistent retrieval of the `getEnv` helper's own definition and `.env.example` contents depending on question phrasing.
 
 **2. Abstract Mathematical Architecture (`ML_Gen2`)**
 - **Profile:** A 6,600-line Reinforcement Learning codebase (AlphaZero MCTS & D3QN Tensor math). Zero standard web scaffolding.
 - **Difficulty:** 8.5/10 (Highly abstract, deep multi-hop neural network tracking).
-- **Score:** **100% Accuracy (12/12 brutal multi-hop queries passed)**
-- **Takeaway:** Lokr successfully tracked tensor shapes, missing LSTM layers, and successfully dodged 100% of Runtime Ambiguity traps (where dynamic file paths or Docker port mappings depend on host machines). It refused to hallucinate and threw the correct missing feature flags every time.
+- **Score:** **83–100% Accuracy (10–12/12 across 3 runs)**
+- **Takeaway:** Lokr reliably tracked tensor shapes and dodged standard hallucination traps. Runtime-ambiguity handling was 100% reliable for environment-variable-based cases, but inconsistent on dynamic-path and Docker-orchestration-based ambiguity (e.g., ports set via external Compose files, paths built from `__file__`).
 
 **3. Context Token Efficiency (Surgical RAG)**
-- **Profile:** Measured the total token usage across all 12 `ML_Gen2` Hard Mode queries comparing Lokr's AST graph extraction vs. standard full-file IDE RAG.
-- **Score:** **25.1% Token Reduction (Lokr is 1.33x more efficient)**
-- **Takeaway:** By strictly extracting function nodes via a "Flipped Loop" heuristic and pruning global bloat, Lokr generated the precise context needed using only **196,781 tokens**, compared to standard RAG's **262,639 tokens** (saving 65,858 tokens). The surgical precision actively *improved* Lokr's accuracy by starving it of hallucination traps.
+- **Profile:** Measured total token usage across all 12 `ML_Gen2` Hard Mode queries comparing Lokr's AST graph extraction vs. standard full-file IDE RAG.
+- **Score:** **24.0% Token Reduction (Lokr is 1.3x more efficient)** — 76,956 tokens vs. 101,302 tokens across 12 queries.
+- **Takeaway:** Lokr's graph-scoped retrieval cut token usage on 11 of 12 queries, with reductions ranging from 20% to 79%. The one exception: a query requiring a symbol definition outside the reachable dependency graph caused the retriever to over-expand (62 function nodes), costing 10.2% *more* tokens than a naive full-file read.
 
 ### Transparent Testing: See for Yourself
 
