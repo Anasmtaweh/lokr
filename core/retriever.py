@@ -126,10 +126,6 @@ class Retriever:
                     pred_data = self.graph.graph.nodes[neighbor]
                     if pred_data.get('node_type') == 'class':
                         context_node_ids.add(neighbor)
-                    elif pred_data.get('node_type') == 'file':
-                        # Pull in the parent file node itself so the LLM sees the top-level
-                        # initialization context (like mongoose.connect, app.listen)
-                        context_node_ids.add(neighbor)
         
         return initial_node_ids, context_node_ids
 

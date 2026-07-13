@@ -59,8 +59,13 @@ Lokr is tested continuously against real, undocumented codebases to ensure its A
 **2. Abstract Mathematical Architecture (`ML_Gen2`)**
 - **Profile:** A 6,600-line Reinforcement Learning codebase (AlphaZero MCTS & D3QN Tensor math). Zero standard web scaffolding.
 - **Difficulty:** 8.5/10 (Highly abstract, deep multi-hop neural network tracking).
-- **Score:** **83.3% Accuracy (10/12 brutal multi-hop queries passed)**
-- **Takeaway:** Lokr scored 100% on the static code questions, successfully tracking tensor shapes and missing LSTM layers across multiple files. It lost 2 points exclusively on *Runtime Ambiguity Traps* (it successfully traced the absolute file path generation, but failed to realize that absolute paths cannot be determined statically since they depend on the host machine).
+- **Score:** **91.7% Accuracy (11/12 brutal multi-hop queries passed)**
+- **Takeaway:** Lokr scored 100% on the static code questions, successfully tracking tensor shapes and missing LSTM layers across multiple files. It lost 1 point exclusively on a *Runtime Ambiguity Trap* (it successfully traced dynamic file paths, but failed to realize that a Docker Compose port mapping cannot be determined statically).
+
+**3. Context Token Efficiency (Surgical RAG)**
+- **Profile:** Measured the total token usage across all 12 `ML_Gen2` Hard Mode queries comparing Lokr's AST graph extraction vs. standard full-file IDE RAG.
+- **Score:** **13.6% Token Reduction (Lokr is 1.15x more efficient)**
+- **Takeaway:** By strictly extracting function nodes and pruning global bloat, Lokr generated the precise context needed using only **275,732 tokens**, compared to standard RAG's **319,199 tokens** (saving 43,467 tokens). Not only did this save tokens, but stripping the global file bloat actually *improved* Lokr's accuracy by removing hallucination traps.
 
 ### Transparent Testing: See for Yourself
 

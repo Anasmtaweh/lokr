@@ -95,10 +95,6 @@ class ContextOracle:
                     if facts:
                         facts_str = "\n".join(f" - {f}" for f in facts)
                         file_blocks.append(f"### 📄 FILE FACTS (verified)\n{facts_str}\n")
-                        
-                    lang = "javascript" if filepath.suffix in [".js", ".jsx", ".ts", ".tsx"] else "python"
-                    numbered_content = "\n".join([f"{i + 1} | {line}" for i, line in enumerate(content.splitlines())])
-                    file_blocks.append(f"### 📄 Full file: {match}\n```{lang}\n{numbered_content}\n```\n")
                 else:
                     file_blocks.append(f"### 📄 SYSTEM LOG: FILE NOT FOUND. {match} does not exist in the project root.")
             except Exception as e:
