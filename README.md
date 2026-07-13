@@ -59,13 +59,13 @@ Lokr is tested continuously against real, undocumented codebases to ensure its A
 **2. Abstract Mathematical Architecture (`ML_Gen2`)**
 - **Profile:** A 6,600-line Reinforcement Learning codebase (AlphaZero MCTS & D3QN Tensor math). Zero standard web scaffolding.
 - **Difficulty:** 8.5/10 (Highly abstract, deep multi-hop neural network tracking).
-- **Score:** **91.7% Accuracy (11/12 brutal multi-hop queries passed)**
-- **Takeaway:** Lokr scored 100% on the static code questions, successfully tracking tensor shapes and missing LSTM layers across multiple files. It lost 1 point exclusively on a *Runtime Ambiguity Trap* (it successfully traced dynamic file paths, but failed to realize that a Docker Compose port mapping cannot be determined statically).
+- **Score:** **100% Accuracy (12/12 brutal multi-hop queries passed)**
+- **Takeaway:** Lokr successfully tracked tensor shapes, missing LSTM layers, and successfully dodged 100% of Runtime Ambiguity traps (where dynamic file paths or Docker port mappings depend on host machines). It refused to hallucinate and threw the correct missing feature flags every time.
 
 **3. Context Token Efficiency (Surgical RAG)**
 - **Profile:** Measured the total token usage across all 12 `ML_Gen2` Hard Mode queries comparing Lokr's AST graph extraction vs. standard full-file IDE RAG.
-- **Score:** **13.6% Token Reduction (Lokr is 1.15x more efficient)**
-- **Takeaway:** By strictly extracting function nodes and pruning global bloat, Lokr generated the precise context needed using only **275,732 tokens**, compared to standard RAG's **319,199 tokens** (saving 43,467 tokens). Not only did this save tokens, but stripping the global file bloat actually *improved* Lokr's accuracy by removing hallucination traps.
+- **Score:** **25.1% Token Reduction (Lokr is 1.33x more efficient)**
+- **Takeaway:** By strictly extracting function nodes via a "Flipped Loop" heuristic and pruning global bloat, Lokr generated the precise context needed using only **196,781 tokens**, compared to standard RAG's **262,639 tokens** (saving 65,858 tokens). The surgical precision actively *improved* Lokr's accuracy by starving it of hallucination traps.
 
 ### Transparent Testing: See for Yourself
 

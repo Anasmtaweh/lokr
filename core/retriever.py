@@ -58,16 +58,28 @@ class Retriever:
                     elif lower_n.endswith('/app.js') or lower_n.endswith('/index.js') or lower_n.endswith('/main.py') or lower_n.endswith('/app.py'):
                         global_hits.add(n)
 
-        # Step 0.7: Exact Symbol / Keyword Heuristic
-        # Boosts exact matches like "mongoose.connect" or "jwt.sign"
+        # Step 0.7: Exact Symbol / Keyword Heuristic (The Flipped Loop)
         keyword_hits = set()
-        symbols = [w for w in query.split() if len(w) > 3 and not w.lower() in ['what', 'where', 'how', 'when', 'why', 'the', 'is', 'are', 'does', 'do', 'in', 'on', 'at', 'this']]
+        query_lower = query.lower()
         
-        if symbols:
-            for n, d in self.graph.graph.nodes(data=True):
-                name = d.get('name', '')
-                if any(sym in name for sym in symbols):
+        for n, d in self.graph.graph.nodes(data=True):
+            name = d.get('name', '')
+            if not name:
+                continue
+                
+            # Extract just the function/class name (e.g. 'Class.method' -> 'method')
+            base_name = name.split('.')[-1].split('::')[-1]
+            
+            # Ignore short names to prevent false positives (like 'x' or 'run')
+            if len(base_name) < 4:
+                continue
+                
+            # Use regex to find exact discrete word matches (case-insensitive)
+            try:
+                if re.search(rf'\b{re.escape(base_name.lower())}\b', query_lower):
                     keyword_hits.add(n)
+            except Exception:
+                pass
 
         # Step 1: Semantic Search
         results = self.db.search(query, n_results=top_k)

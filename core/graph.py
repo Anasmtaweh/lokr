@@ -141,6 +141,7 @@ class DependencyGraph:
 
         # Always check for changes (committed or uncommitted) between the stored hash 
         # and the current working directory.
+        changes = []
         try:
             result = subprocess.run(
                 ["git", "diff", "--name-status", stored_hash],
@@ -149,20 +150,52 @@ class DependencyGraph:
                 cwd=str(project_root),
                 check=True
             )
+            tracked_changes = result.stdout.strip().split("\n")
+            if tracked_changes and tracked_changes[0]:
+                changes.extend(tracked_changes)
         except subprocess.CalledProcessError:
-            return delta
+            pass
 
-        changes = result.stdout.strip().split("\n")
-        if not changes or (len(changes) == 1 and not changes[0]):
+        try:
+            untracked_result = subprocess.run(
+                ["git", "ls-files", "--others", "--exclude-standard"],
+                capture_output=True,
+                text=True,
+                cwd=str(project_root),
+                check=True
+            )
+            untracked_files = [line.strip() for line in untracked_result.stdout.strip().split("\n") if line.strip()]
+            for f in untracked_files:
+                changes.append(f"A\t{f}")
+        except subprocess.CalledProcessError:
+            pass
+
+        if not changes:
             return delta
 
         has_changes = False
+        
+        # Pre-process statuses to handle renames (R) and copies (C)
+        processed_changes = []
         for line in changes:
             parts = line.split("\t")
             if len(parts) < 2:
                 continue
-            
-            status, rel_path = parts[0], parts[1]
+                
+            status = parts[0]
+            if status.startswith('R') and len(parts) >= 3:
+                # R100 \t old_file \t new_file -> Delete old, Add new
+                processed_changes.append(('D', parts[1]))
+                processed_changes.append(('A', parts[2]))
+            elif status.startswith('C') and len(parts) >= 3:
+                # C100 \t old_file \t new_file -> Add new (old is untouched)
+                processed_changes.append(('A', parts[2]))
+            else:
+                # Clean up D, A, M, T, U etc.
+                clean_status = 'D' if status.startswith('D') else ('A' if status.startswith('A') else 'M')
+                processed_changes.append((clean_status, parts[1]))
+
+        for status, rel_path in processed_changes:
             abs_path = (project_root / rel_path).resolve()
             abs_path_str = str(abs_path)
 
