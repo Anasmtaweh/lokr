@@ -28,6 +28,7 @@ def main() -> None:
     parser.add_argument("--search", type=str,           metavar="QUERY",     help="Phase 4: Semantic search across the codebase Vector DB")
     parser.add_argument("--update", action="store_true",                     help="Phase 5: Incremental fast-sync of git-changed files")
     parser.add_argument("--ask",    type=str,           metavar="QUERY",     help="Phase 6: Ask the Oracle to generate rich Markdown context")
+    parser.add_argument("--autocoder", type=str,        metavar="TASK",      help="Phase 6b: Generate an XML prompt for Cursor/Copilot to implement a task")
     parser.add_argument("--mcp",    action="store_true",                     help="Phase 7: Start the stdio MCP server for AI agent integration")
     parser.add_argument("--config", type=str, default="config.yaml",         help="Path to config yaml (default: config.yaml)")
 
@@ -214,6 +215,35 @@ def main() -> None:
             oracle = ContextOracle(parser=code_parser, graph=dep_graph, db=vector_db, graph_path=graph_path, project_root=project_root)
             context_markdown, _, _ = oracle.generate_context(query=args.ask)
             print(context_markdown)
+        except Exception as e:
+            print(f"[ERROR] {e}", file=sys.stderr)
+            sys.exit(1)
+
+    # Phase 6b: Auto-Coder
+    elif args.autocoder:
+        try:
+            scanner = CodeScanner(target_dir=project_root, config_path=args.config)
+            project_files = list(scanner.get_files())
+            code_parser = CodeParser()
+            vector_db = CodebaseVectorDB()
+            dep_graph = DependencyGraph()
+            
+            # Graph Persistence Logic
+            storage_dir = Path(".lokr")
+            graph_path = storage_dir / "graph.json"
+            
+            if graph_path.exists():
+                dep_graph.load_graph(graph_path)
+                if dep_graph.sync_with_git(project_root, code_parser, project_files):
+                    dep_graph.save_graph(graph_path)
+            else:
+                dep_graph.build_graph(file_paths=project_files, parser=code_parser, project_root=project_root)
+                storage_dir.mkdir(exist_ok=True)
+                dep_graph.save_graph(graph_path)
+                
+            oracle = ContextOracle(parser=code_parser, graph=dep_graph, db=vector_db, graph_path=graph_path, project_root=project_root)
+            xml_output = oracle.generate_auto_coder_prompt(task_description=args.autocoder)
+            print(xml_output)
         except Exception as e:
             print(f"[ERROR] {e}", file=sys.stderr)
             sys.exit(1)

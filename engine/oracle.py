@@ -173,3 +173,28 @@ class ContextOracle:
         a brittle regex that mistakes frameworks (Express.js) for missing files.
         """
         return False, None
+
+    def generate_auto_coder_prompt(self, task_description: str, top_k: int = 5) -> str:
+        """
+        Generates a structured XML prompt intended for AI coding assistants (e.g., Lokr Assistant, Cursor).
+        """
+        context_markdown, _, _ = self.generate_context(query=task_description, top_k=top_k)
+        
+        xml_prompt = f"""<auto_coder_instructions>
+  <task_description>
+{task_description}
+  </task_description>
+  <surgical_context>
+    <!-- 
+    The following is Lokr's strictly verified execution graph context. 
+    You must rely on this context to implement the feature. Do not hallucinate files or imports.
+    -->
+{context_markdown}
+  </surgical_context>
+  <rules>
+    <rule id="1">Do not invent or hallucinate classes, functions, or imports that are not explicitly present in the surgical_context.</rule>
+    <rule id="2">Implement the requested feature exactly as described in the task_description.</rule>
+    <rule id="3">If the surgical_context does not contain enough information to complete the task safely, you must refuse and explain what information is missing.</rule>
+  </rules>
+</auto_coder_instructions>"""
+        return xml_prompt
